@@ -1,0 +1,44 @@
+name:       double-ratchet
+version:    0.1.0
+synopsis:   A double ratchet implementation parameterized over your choice of KDFs
+stability:  experimental
+author:     Arjun Khandkar
+copyright:  (c) 2026 Arjun Khandkar
+
+language: GHC2021
+
+default-extensions:
+  - AllowAmbiguousTypes
+  - RecordWildCards
+  - TemplateHaskell
+  - TypeFamilies
+
+dependencies:
+  - base
+  - containers
+  - lens
+  - mtl
+
+ghc-options:
+- -Wall
+- -Werror
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+- -Wno-unticked-promoted-constructors
+
+library:
+  source-dirs: src
+
+tests:
+  state-machine-spec:
+    main: Main.hs
+    source-dirs: test
+    dependencies:
+      - double-ratchet
+      - hspec
