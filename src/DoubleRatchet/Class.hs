@@ -17,23 +17,25 @@ where
 is deterministic.
 -}
 class DoubleRatchet impl where
-  -- | Key for the root ratchet that spawns chain ratchets
-  type RootKey impl
+  -- | Key for the root key ratchet
+  type Root impl
 
-  {- | Key for the sending chain ratchet. This can resolve to the same type as 'ReceivingChainKey',
-  but a separate type family has been provided to help avoid ambiguity.
+  {- | Chain key ratchet that produces symmetric keys to encrypt messages.
+  This can resolve to the same type as 'ReceivingChain', but a separate type family
+  has been provided to help avoid ambiguity.
   -}
-  type SendingChainKey impl
+  type SendingChain impl
 
-  {- | Key for the receiving chain ratchet. This can resolve to the same type as 'SendingChainKey',
-  but a separate type family has been provided to help avoid ambiguity.
+  {- | Chain key ratchet that produces symmetric keys to decrypt messages.
+  This can resolve to the same type as 'SendingChain', but a separate type family
+  has been provided to help avoid ambiguity.
   -}
-  type ReceivingChainKey impl
+  type ReceivingChain impl
 
-  {- | A key produced by a chain ratchet, which can be used as symmetric key material to encrypt
+  {- | A key produced by a chain key ratchet, which can be used as symmetric key material to encrypt
   and decrypt messages
   -}
-  type MessageKey impl
+  type SymmetricKey impl
 
   -- | Secret key that can be fed into a DH algorithm
   type SecretKey impl
@@ -60,15 +62,15 @@ class DoubleRatchet impl where
   -- | Derive a shared secret from a public key and a secret key
   deriveSharedSecret :: PublicKey impl -> SecretKey impl -> SharedSecret impl
 
-  {- | Derive the next sending chain key from the current and get a new message key.
-  Depending on your instance, this can be the same as 'deriveNextReceivingChainKey'.
+  {- | Derive the next sending chain from the current and get a new symmetric key.
+  Depending on your instance, this can be the same as 'deriveNextReceivingChain'.
   -}
-  deriveNextSendingChainKey :: SendingChainKey impl -> (MessageKey impl, SendingChainKey impl)
+  deriveNextSendingChain :: SendingChain impl -> (SymmetricKey impl, SendingChain impl)
 
-  {- | Derive the next receiving chain key from the current and get a new message key.
-  Depending on your instance, this can be the same as 'deriveNextSendingChainKey'.
+  {- | Derive the next receiving chain from the current and get a new symmetric key.
+  Depending on your instance, this can be the same as 'deriveNextSendingChain'.
   -}
-  deriveNextReceivingChainKey :: ReceivingChainKey impl -> (MessageKey impl, ReceivingChainKey impl)
+  deriveNextReceivingChain :: ReceivingChain impl -> (SymmetricKey impl, ReceivingChain impl)
 
   -- | Initialize the root key and get sending and receiving chain keys
   initializeRootRatchet
@@ -76,27 +78,27 @@ class DoubleRatchet impl where
     -> TheirId impl
     -> SharedSecret impl
     -- ^ DH secret from initial key exchange
-    -> (RootKey impl, SendingChainKey impl, ReceivingChainKey impl)
+    -> (Root impl, SendingChain impl, ReceivingChain impl)
     -- ^ Initial root key along with sending chain key and receiving chain key
 
   -- | Derive the next root key from the current and get a new chain key for a sending chain ratchet
-  deriveNextRootKeySending
-    :: RootKey impl
+  deriveNextRootSending
+    :: Root impl
     -- ^ Existing root ratchet key
     -> OurId impl
     -> TheirId impl
     -> SharedSecret impl
     -- ^ Fresh DH secret
-    -> (RootKey impl, SendingChainKey impl)
+    -> (Root impl, SendingChain impl)
     -- ^ New root ratchet key along with sending chain key
 
   -- | Derive the next root key from the current and get a new chain key for a receiving chain ratchet
-  deriveNextRootKeyReceiving
-    :: RootKey impl
+  deriveNextRootReceiving
+    :: Root impl
     -- ^ Existing root ratchet key
     -> OurId impl
     -> TheirId impl
     -> SharedSecret impl
     -- ^ Fresh DH secret
-    -> (RootKey impl, ReceivingChainKey impl)
+    -> (Root impl, ReceivingChain impl)
     -- ^ New root ratchet key along with receiving chain key

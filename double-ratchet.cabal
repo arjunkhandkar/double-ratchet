@@ -17,9 +17,12 @@ build-type:     Simple
 
 library
   exposed-modules:
-      DoubleRatchet
       DoubleRatchet.Class
+      DoubleRatchet.RatchetM
       DoubleRatchet.RatchetState
+      Test.Implementation
+      Test.TestMain
+      Test.ToyCrypto
   other-modules:
       Paths_double_ratchet
   hs-source-dirs:
@@ -33,8 +36,11 @@ library
   build-depends:
       base
     , containers
-    , lens
+    , hedgehog
+    , hspec
     , mtl
+    , random
+    , text
   default-language: GHC2021
 
 test-suite state-machine-spec
@@ -54,7 +60,9 @@ test-suite state-machine-spec
       base
     , containers
     , double-ratchet
+    , hedgehog
     , hspec
-    , lens
     , mtl
+    , random
+    , text
   default-language: GHC2021

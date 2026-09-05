@@ -1,10 +1,24 @@
-module DoubleRatchet
-  ( MessageKeyId (..)
-  , RatchetM
+{- |
+Module: DoubleRatchet.RatchetM
+Copyright: (c) 2026 Arjun Khandkar
+License: MIT
+Maintainer: khandkararjun@gmail.com
+Stability: experimental
+
+Transformations over 'RatchetState'
+-}
+module DoubleRatchet.RatchetM
+  ( -- ** Run computations against RatchetState
+    RatchetM
+  , runRatchetM
+
+    -- ** RatchetState manipulation
   , advanceReceivingChain
   , advanceSendingChain
   , advanceSendingRatchet
-  , runRatchetM
+
+    -- ** Helper types
+  , SymmetricKeyId (..)
   )
 where
 
@@ -29,58 +43,6 @@ runRatchetM
   -- ^ The result of the computation along with the new ratchet state
 runRatchetM = flip runState
 
-data MessageKeyId dhPublicKey = MessageKeyId
-  { keyIndex :: Int
-  , chainEpoch :: dhPublicKey
-  }
-  deriving (Eq, Ord, Show)
-
-{- | Advance the sending chain ratchet and derive a key that can be used to encrypt a message.
-Also returns a message key ID and the length of the previous sending chain, both of which are
-needed for state synchronization with the other participant.
--}
-advanceSendingChain
-  :: forall impl
-   . DoubleRatchet impl
-  => RatchetM impl (MessageKeyId (PublicKey impl), (MessageKey impl), Int)
-  -- ^ Message key ID, message key and previous sending chain length
-advanceSendingChain = do
-  -- Fetch current sending chain key and index
-  currentChainKey <- gets (sendingChainKey . sendingChainState)
-  keyIndex <- gets (nextSendingMessageIndex . sendingChainState)
-  -- Derive message key and next sending chain key
-  let (messageKey, nextChainKey) = deriveNextSendingChainKey @impl currentChainKey
-  -- Update sending chain key and next sending message index
-  modify $ \s ->
-    s
-      { sendingChainState =
-          (sendingChainState s)
-            { sendingChainKey = nextChainKey
-            , nextSendingMessageIndex = keyIndex + 1
-            }
-      }
-  -- Get current sending chain epoch and previous chain length
-  chainEpoch <- fmap (toPublicKey @impl) $ gets dhSecretKey
-  previousSendingChainLength' <- gets (previousSendingChainLength . sendingChainState)
-  pure (MessageKeyId {..}, messageKey, previousSendingChainLength')
-
-singleAdvanceReceivingChain
-  :: forall impl
-   . DoubleRatchet impl
-  => RatchetM impl (MessageKey impl)
-singleAdvanceReceivingChain = do
-  chainKey <- gets (receivingChainKey . receivingChainState)
-  let (messageKey, nextChainKey) = deriveNextReceivingChainKey @impl chainKey
-  modify $ \s ->
-    s
-      { receivingChainState =
-          (receivingChainState s)
-            { receivingChainKey = nextChainKey
-            , nextReceivingMessageIndex = nextReceivingMessageIndex (receivingChainState s) + 1
-            }
-      }
-  pure messageKey
-
 {- | Advance the receiving chain ratchet and derive a key that can be used to decrypt a message.
 This function may automatically advance the root ratchet to derive a fresh receiving chain,
 if necessary. It will return 'Nothing' if the message key identified by the supplied message
@@ -89,14 +51,11 @@ key ID was previously returned by the ratchet.
 advanceReceivingChain
   :: forall impl
    . (DoubleRatchet impl, Ord (PublicKey impl))
-  => MessageKeyId (PublicKey impl)
-  -- ^ Requested message, identified by chain epoch and index
-  -> Int
-  -- ^ Previous sending chain length
+  => SymmetricKeyId (PublicKey impl)
   -> OurId impl
   -> TheirId impl
-  -> RatchetM impl (Maybe (MessageKey impl))
-advanceReceivingChain messageKeyId previousChainLength ourUserId theirUserId = do
+  -> RatchetM impl (Maybe (SymmetricKey impl))
+advanceReceivingChain messageKeyId ourUserId theirUserId = do
   currentReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
   knownReceivingChainEpochs' <- gets (knownReceivingChainEpochs . receivingChainState)
 
@@ -138,12 +97,12 @@ advanceReceivingChain messageKeyId previousChainLength ourUserId theirUserId = d
           }
 
       -- Advance ratchet and get a new sending chain key
-      advanceReceivingRatchet (chainEpoch messageKeyId) previousChainLength ourUserId theirUserId
+      advanceReceivingRatchet (chainEpoch messageKeyId) (previousChainLength messageKeyId) ourUserId theirUserId
 
       -- Now that we are in the correct epoch, we can do a current-epoch lookup
       currentEpochLookup
  where
-  currentEpochLookup :: RatchetM impl (Maybe (MessageKey impl))
+  currentEpochLookup :: RatchetM impl (Maybe (SymmetricKey impl))
   currentEpochLookup = do
     nextReceivingIndex <- gets (nextReceivingMessageIndex . receivingChainState)
     if (keyIndex messageKeyId) == nextReceivingIndex then
@@ -153,7 +112,7 @@ advanceReceivingChain messageKeyId previousChainLength ourUserId theirUserId = d
         chainKey <- gets (receivingChainKey . receivingChainState)
         oldMissedMessageMap <- gets (skippedMessageMap . receivingChainState)
         latestReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
-        let (skippedMessageKeys, newChainKey) =
+        let (skippedSymmetricKeys, newChainKey) =
               advanceReceivingFromTo @impl
                 nextReceivingIndex
                 (keyIndex messageKeyId)
@@ -161,8 +120,8 @@ advanceReceivingChain messageKeyId previousChainLength ourUserId theirUserId = d
         let newSkippedMessageMapEntries =
               Map.fromList $
                 fmap
-                  (\(missedMessageKey, index) -> ((latestReceivingChainEpoch, index), missedMessageKey))
-                  skippedMessageKeys
+                  (\(missedSymmetricKey, index) -> ((latestReceivingChainEpoch, index), missedSymmetricKey))
+                  skippedSymmetricKeys
             newSkippedMessageMap = Map.union oldMissedMessageMap newSkippedMessageMapEntries
         modify $ \s ->
           s
@@ -189,37 +148,22 @@ advanceReceivingChain messageKeyId previousChainLength ourUserId theirUserId = d
             }
         pure messageKeyMaybe
 
-advanceSendingRatchet
+singleAdvanceReceivingChain
   :: forall impl
    . DoubleRatchet impl
-  => SecretKey impl
-  -- ^ *Our* new secret key
-  -> OurId impl
-  -> TheirId impl
-  -> RatchetM impl ()
-advanceSendingRatchet newSecretKey ourUserId theirUserId = do
-  oldRootKey <- gets root
-  previousSendingChainLength' <- gets (nextSendingMessageIndex . sendingChainState)
-  dhPublicKey' <- gets (receivingChainEpoch . receivingChainState)
-  let newDhSecret = deriveSharedSecret @impl dhPublicKey' newSecretKey
-      (newRootKey, newSendingChainKey) =
-        deriveNextRootKeySending
-          @impl
-          oldRootKey
-          ourUserId
-          theirUserId
-          newDhSecret
+  => RatchetM impl (SymmetricKey impl)
+singleAdvanceReceivingChain = do
+  chainKey <- gets (receivingChainKey . receivingChainState)
+  let (messageKey, nextChainKey) = deriveNextReceivingChain @impl chainKey
   modify $ \s ->
     s
-      { root = newRootKey
-      , dhSecretKey = newSecretKey
-      , sendingChainState =
-          (sendingChainState s)
-            { nextSendingMessageIndex = 0
-            , sendingChainKey = newSendingChainKey
-            , previousSendingChainLength = previousSendingChainLength'
+      { receivingChainState =
+          (receivingChainState s)
+            { receivingChainKey = nextChainKey
+            , nextReceivingMessageIndex = nextReceivingMessageIndex (receivingChainState s) + 1
             }
       }
+  pure messageKey
 
 advanceReceivingRatchet
   :: forall impl
@@ -238,32 +182,32 @@ advanceReceivingRatchet dhPubKey previousChainLength ourUserId theirUserId = do
   oldMissedMessageMap <- gets (skippedMessageMap . receivingChainState)
   oldReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
   -- We discard the chain key as we'll get a new one from the advanced root
-  let (skippedMessageKeys, _) = advanceReceivingFromTo @impl chainIndex previousChainLength chainKey
+  let (skippedSymmetricKeys, _) = advanceReceivingFromTo @impl chainIndex previousChainLength chainKey
   let newSkippedMessageMapEntries =
         Map.fromList $
           fmap
-            (\(missedMessageKey, index) -> ((oldReceivingChainEpoch, index), missedMessageKey))
-            skippedMessageKeys
+            (\(missedSymmetricKey, index) -> ((oldReceivingChainEpoch, index), missedSymmetricKey))
+            skippedSymmetricKeys
       newSkippedMessageMap = Map.union oldMissedMessageMap newSkippedMessageMapEntries
-  oldRootKey <- gets root
+  oldRoot <- gets root
   dhSecretKey' <- gets dhSecretKey
   let newDhSecret = deriveSharedSecret @impl dhPubKey dhSecretKey'
-      (newRootKey, newReceivingChainKey) =
-        deriveNextRootKeyReceiving
+      (newRoot, newReceivingChain) =
+        deriveNextRootReceiving
           @impl
-          oldRootKey
+          oldRoot
           ourUserId
           theirUserId
           newDhSecret
   modify $ \s ->
     s
-      { root = newRootKey
+      { root = newRoot
       , receivingChainState =
           (receivingChainState s)
             { skippedMessageMap = newSkippedMessageMap
             , nextReceivingMessageIndex = 0
             , receivingChainEpoch = dhPubKey
-            , receivingChainKey = newReceivingChainKey
+            , receivingChainKey = newReceivingChain
             }
       }
 
@@ -272,12 +216,12 @@ advanceReceivingFromTo
    . DoubleRatchet impl
   => Int
   -> Int
-  -> ReceivingChainKey impl
-  -> ([(MessageKey impl, Int)], ReceivingChainKey impl)
+  -> ReceivingChain impl
+  -> ([(SymmetricKey impl, Int)], ReceivingChain impl)
 advanceReceivingFromTo from to chainKey = do
   let go _ 0 = []
       go ck num =
-        let (mk, nCk) = deriveNextReceivingChainKey @impl ck
+        let (mk, nCk) = deriveNextReceivingChain @impl ck
          in (mk, nCk) : (go nCk (num - 1))
   if from < to then
     let newKeys = go chainKey (to - from)
@@ -286,3 +230,72 @@ advanceReceivingFromTo from to chainKey = do
           Just (_, finalChainKey) -> (zip (fmap fst newKeys) [from ..], finalChainKey)
   else
     ([], chainKey) -- we're caught up or are already ahead
+
+{- | Advance the sending chain ratchet and derive a key that can be used to encrypt a message.
+Also returns a message key ID and the length of the previous sending chain, both of which are
+needed for state synchronization with the other participant.
+-}
+advanceSendingChain
+  :: forall impl
+   . DoubleRatchet impl
+  => RatchetM impl (SymmetricKeyId (PublicKey impl), SymmetricKey impl)
+  -- ^ Message key ID, message key and previous sending chain length
+advanceSendingChain = do
+  -- Fetch current sending chain key and index
+  currentChainKey <- gets (sendingChainKey . sendingChainState)
+  keyIndex <- gets (nextSendingMessageIndex . sendingChainState)
+  -- Derive message key and next sending chain key
+  let (messageKey, nextChainKey) = deriveNextSendingChain @impl currentChainKey
+  -- Update sending chain key and next sending message index
+  modify $ \s ->
+    s
+      { sendingChainState =
+          (sendingChainState s)
+            { sendingChainKey = nextChainKey
+            , nextSendingMessageIndex = keyIndex + 1
+            }
+      }
+  -- Get current sending chain epoch and previous chain length
+  chainEpoch <- fmap (toPublicKey @impl) $ gets dhSecretKey
+  previousChainLength <- gets (previousSendingChainLength . sendingChainState)
+  pure (SymmetricKeyId {..}, messageKey)
+
+advanceSendingRatchet
+  :: forall impl
+   . DoubleRatchet impl
+  => SecretKey impl
+  -- ^ *Our* new secret key
+  -> OurId impl
+  -> TheirId impl
+  -> RatchetM impl ()
+advanceSendingRatchet newSecretKey ourUserId theirUserId = do
+  oldRoot <- gets root
+  previousSendingChainLength' <- gets (nextSendingMessageIndex . sendingChainState)
+  dhPublicKey' <- gets (receivingChainEpoch . receivingChainState)
+  let newDhSecret = deriveSharedSecret @impl dhPublicKey' newSecretKey
+      (newRoot, newSendingChain) =
+        deriveNextRootSending
+          @impl
+          oldRoot
+          ourUserId
+          theirUserId
+          newDhSecret
+  modify $ \s ->
+    s
+      { root = newRoot
+      , dhSecretKey = newSecretKey
+      , sendingChainState =
+          (sendingChainState s)
+            { nextSendingMessageIndex = 0
+            , sendingChainKey = newSendingChain
+            , previousSendingChainLength = previousSendingChainLength'
+            }
+      }
+
+-- | Uniquely identify a message key
+data SymmetricKeyId dhPublicKey = SymmetricKeyId
+  { keyIndex :: Int
+  , chainEpoch :: dhPublicKey
+  , previousChainLength :: Int
+  }
+  deriving (Eq, Ord, Show)

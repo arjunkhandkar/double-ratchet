@@ -1,5 +1,5 @@
 {- |
-Module: DoubleRatchet.RatchetM
+Module: DoubleRatchet.RatchetState
 Copyright: (c) 2026 Arjun Khandkar
 License: MIT
 Maintainer: khandkararjun@gmail.com
@@ -43,7 +43,7 @@ import Data.Set qualified as Set
 import DoubleRatchet.Class (DoubleRatchet (..))
 
 data SendingChainState impl = SendingChainState
-  { sendingChainKey :: SendingChainKey impl
+  { sendingChainKey :: SendingChain impl
   -- ^ Chain key from which message key and subsequent chain keys issue
   , nextSendingMessageIndex :: Int
   -- ^ Sending chain length after the next chain ratchet advance
@@ -52,7 +52,7 @@ data SendingChainState impl = SendingChainState
   }
 
 data ReceivingChainState impl = ReceivingChainState
-  { receivingChainKey :: ReceivingChainKey impl
+  { receivingChainKey :: ReceivingChain impl
   -- ^ Chain key from which message key and subsequent chain keys issue
   , receivingChainEpoch :: PublicKey impl
   -- ^ Sender's public key, used to synchronize state
@@ -60,12 +60,12 @@ data ReceivingChainState impl = ReceivingChainState
   -- ^ Set of known sender public keys
   , nextReceivingMessageIndex :: Int
   -- ^ Receiving chain length after the next chain ratchet advance
-  , skippedMessageMap :: Map.Map (PublicKey impl, Int) (MessageKey impl)
+  , skippedMessageMap :: Map.Map (PublicKey impl, Int) (SymmetricKey impl)
   -- ^ Message keys that the state machine has advanced past without consuming
   }
 
 data RatchetState impl = RatchetState
-  { root :: RootKey impl
+  { root :: Root impl
   -- ^ Key for the root ratchet
   , dhSecretKey :: SecretKey impl
   -- ^ Our secret key
