@@ -19,6 +19,9 @@ jobs:
           enable-stack: true
           stack-version: latest
 
+      - name: Update Stackage index
+        run: stack update
+
       - name: Build
         run: stack build --test --no-run-tests
 
