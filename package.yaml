@@ -38,6 +38,16 @@ ghc-options:
 library:
   source-dirs: src
 
+  exposed-modules:
+    DoubleRatchet.Class
+    DoubleRatchet.RatchetM
+    DoubleRatchet.RatchetState
+    Test.TestMain
+
+  other-modules:
+    Test.Implementation
+    Test.ToyCrypto
+
 tests:
   state-machine-spec:
     main: Main.hs

@@ -17,14 +17,9 @@ build-type:     Simple
 
 library
   exposed-modules:
-      DoubleRatchet.Class
-      DoubleRatchet.RatchetM
-      DoubleRatchet.RatchetState
-      Test.Implementation
-      Test.TestMain
-      Test.ToyCrypto
+      DoubleRatchet.Class DoubleRatchet.RatchetM DoubleRatchet.RatchetState Test.TestMain
   other-modules:
-      Paths_double_ratchet
+      Test.Implementation Test.ToyCrypto
   hs-source-dirs:
       src
   default-extensions:
