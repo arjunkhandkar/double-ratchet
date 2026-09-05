@@ -10,7 +10,7 @@ where
 import Control.Monad (forM, replicateM)
 import Data.List (sort)
 import Data.Maybe (catMaybes)
-import DoubleRatchet.RatchetM (advanceReceivingChain, advanceSendingChain, runRatchetM)
+import DoubleRatchet.RatchetM (ratchetReceivingChainKey, ratchetSendingChainKey, runRatchetM)
 import DoubleRatchet.RatchetState (initializeRatchetState)
 import DoubleRatchet.RatchetState qualified as RatchetState
 import Hedgehog.Gen (sample, shuffle)
@@ -46,12 +46,12 @@ firstEpochInOrder = do
       bobR0 = initializeRatchetState @TestImplementation alicePub0 bobSec0 bobBobPov aliceBobPov
   -- Alice generates 5 sending keys
   let (aliceKeys, _) =
-        runRatchetM @TestImplementation aliceR0 $ replicateM 5 $ advanceSendingChain
+        runRatchetM @TestImplementation aliceR0 $ replicateM 5 $ ratchetSendingChainKey
   -- Bob generates 5 receiving keys
   let (bobKeys, _) =
         runRatchetM @TestImplementation bobR0 $
           forM aliceKeys $ \(key, _) ->
-            fmap (key,) $ advanceReceivingChain key bobBobPov aliceBobPov
+            fmap (key,) $ ratchetReceivingChainKey key bobBobPov aliceBobPov
   -- Keys should match
   filterNotFound bobKeys `shouldBe` aliceKeys
 
@@ -65,14 +65,14 @@ firstEpochOutOfOrder = do
       bobR0 = initializeRatchetState @TestImplementation alicePub0 bobSec0 bobBobPov aliceBobPov
   -- Alice generates 5 sending keys
   let (aliceKeys, _) =
-        runRatchetM @TestImplementation aliceR0 $ replicateM 5 $ advanceSendingChain
+        runRatchetM @TestImplementation aliceR0 $ replicateM 5 $ ratchetSendingChainKey
   -- Shuffle Alice's keys, and by extension, the order in which Bob derives receiving keys
   shuffledAliceKeys <- sample $ shuffle aliceKeys
   -- Bob generates 5 receiving keys
   let (bobKeys, _) =
         runRatchetM @TestImplementation bobR0 $
           forM shuffledAliceKeys $ \(key, _) ->
-            fmap (key,) $ advanceReceivingChain key bobBobPov aliceBobPov
+            fmap (key,) $ ratchetReceivingChainKey key bobBobPov aliceBobPov
   -- Keys should match
   sort (filterNotFound bobKeys) `shouldBe` aliceKeys
 
