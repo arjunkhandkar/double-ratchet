@@ -61,7 +61,7 @@ jobs:
         run: stack update
 
       - name: Build Haddocks
-        run: stack haddock --haddock-arguments "--base-url=https://arjunkhandkar.github.io/double-ratchet/haddock/"
+        run: stack haddock
 
       - name: Prepare Pages artifact
         run: |
