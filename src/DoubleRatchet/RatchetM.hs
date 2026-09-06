@@ -158,7 +158,7 @@ singleAdvanceReceivingChain
   => RatchetM impl (SymmetricKey impl)
 singleAdvanceReceivingChain = do
   chainKey <- gets (receivingChainKey . receivingChainState)
-  let (messageKey, nextChainKey) = deriveNextReceivingChain @impl chainKey
+  let (messageKey, nextChainKey) = deriveNextReceivingChainKey @impl chainKey
   modify $ \s ->
     s
       { receivingChainState =
@@ -220,12 +220,12 @@ advanceReceivingFromTo
    . DoubleRatchet impl
   => Int
   -> Int
-  -> ReceivingChain impl
-  -> ([(SymmetricKey impl, Int)], ReceivingChain impl)
+  -> ReceivingChainKey impl
+  -> ([(SymmetricKey impl, Int)], ReceivingChainKey impl)
 advanceReceivingFromTo from to chainKey = do
   let go _ 0 = []
       go ck num =
-        let (mk, nCk) = deriveNextReceivingChain @impl ck
+        let (mk, nCk) = deriveNextReceivingChainKey @impl ck
          in (mk, nCk) : (go nCk (num - 1))
   if from < to then
     let newKeys = go chainKey (to - from)
@@ -249,7 +249,7 @@ ratchetSendingChainKey = do
   currentChainKey <- gets (sendingChainKey . sendingChainState)
   keyIndex <- gets (nextSendingMessageIndex . sendingChainState)
   -- Derive message key and next sending chain key
-  let (messageKey, nextChainKey) = deriveNextSendingChain @impl currentChainKey
+  let (messageKey, nextChainKey) = deriveNextSendingChainKey @impl currentChainKey
   -- Update sending chain key and next sending message index
   modify $ \s ->
     s
@@ -314,4 +314,11 @@ data SymmetricKeyId dhPublicKey = SymmetricKeyId
   This is uniquely determined by 'chainEpoch'.
   -}
   }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Show)
+
+-- | Canonical ordering for 'SymmetricKey'. Within chain epochs, ties are broken by key index.
+instance Ord dhPublicKey => Ord (SymmetricKeyId dhPublicKey) where
+  compare ski1 ski2 =
+    case compare (chainEpoch ski1) (chainEpoch ski2) of
+      EQ -> compare (keyIndex ski1) (keyIndex ski2)
+      defOrdering -> defOrdering

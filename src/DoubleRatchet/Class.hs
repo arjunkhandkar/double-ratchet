@@ -17,30 +17,28 @@ where
 is deterministic.
 -}
 class DoubleRatchet impl where
-  -- | Key for the root key ratchet
-  type Root impl
+  -- | Root key that ratchets to produce chain keys
+  type RootKey impl
 
-  {- | Chain key ratchet that produces symmetric keys to encrypt messages.
+  {- | Chain key that ratchets to produce symmetric keys to encrypt messages.
   This can resolve to the same type as 'ReceivingChain', but a separate type family
   has been provided to help avoid ambiguity.
   -}
-  type SendingChain impl
+  type SendingChainKey impl
 
-  {- | Chain key ratchet that produces symmetric keys to decrypt messages.
+  {- | Chain that ratchets to produce symmetric keys to decrypt messages.
   This can resolve to the same type as 'SendingChain', but a separate type family
   has been provided to help avoid ambiguity.
   -}
-  type ReceivingChain impl
+  type ReceivingChainKey impl
 
-  {- | A key produced by a chain key ratchet, which can be used as symmetric key material to encrypt
-  and decrypt messages
-  -}
+  -- | A key produced by after a chain key ratchet, which can be used to encrypt and decrypt messages
   type SymmetricKey impl
 
-  -- | Secret key that can be fed into a DH algorithm
+  -- | Secret key for DH exchange
   type SecretKey impl
 
-  -- | Public key that can be fed into a DH algorithm
+  -- | Public key for DH exchange
   type PublicKey impl
 
   -- | DH-derived shared secret
@@ -62,15 +60,15 @@ class DoubleRatchet impl where
   -- | Derive a shared secret from a public key and a secret key
   deriveSharedSecret :: PublicKey impl -> SecretKey impl -> SharedSecret impl
 
-  {- | Derive the next sending chain from the current and get a new symmetric key.
-  Depending on your instance, this can be the same as 'deriveNextReceivingChain'.
+  {- | Derive the next sending chain key from the current and get a new symmetric key.
+  Depending on your instance, this can be the same as 'deriveNextReceivingChainKey'.
   -}
-  deriveNextSendingChain :: SendingChain impl -> (SymmetricKey impl, SendingChain impl)
+  deriveNextSendingChainKey :: SendingChainKey impl -> (SymmetricKey impl, SendingChainKey impl)
 
-  {- | Derive the next receiving chain from the current and get a new symmetric key.
-  Depending on your instance, this can be the same as 'deriveNextSendingChain'.
+  {- | Derive the next receiving chain key from the current and get a new symmetric key.
+  Depending on your instance, this can be the same as 'deriveNextSendingChainKey'.
   -}
-  deriveNextReceivingChain :: ReceivingChain impl -> (SymmetricKey impl, ReceivingChain impl)
+  deriveNextReceivingChainKey :: ReceivingChainKey impl -> (SymmetricKey impl, ReceivingChainKey impl)
 
   -- | Initialize the root key and get sending and receiving chain keys
   initializeRootRatchet
@@ -78,27 +76,27 @@ class DoubleRatchet impl where
     -> TheirId impl
     -> SharedSecret impl
     -- ^ DH secret from initial key exchange
-    -> (Root impl, SendingChain impl, ReceivingChain impl)
+    -> (RootKey impl, SendingChainKey impl, ReceivingChainKey impl)
     -- ^ Initial root key along with sending chain key and receiving chain key
 
-  -- | Derive the next root key from the current and get a new chain key for a sending chain ratchet
+  -- | Derive the next root key from the current and get a new chain key to generate encryption keys
   deriveNextRootSending
-    :: Root impl
-    -- ^ Existing root ratchet key
+    :: RootKey impl
+    -- ^ Existing root key
     -> OurId impl
     -> TheirId impl
     -> SharedSecret impl
     -- ^ Fresh DH secret
-    -> (Root impl, SendingChain impl)
+    -> (RootKey impl, SendingChainKey impl)
     -- ^ New root ratchet key along with sending chain key
 
-  -- | Derive the next root key from the current and get a new chain key for a receiving chain ratchet
+  -- | Derive the next root key from the current and get a new chain key to generate decryption keys
   deriveNextRootReceiving
-    :: Root impl
-    -- ^ Existing root ratchet key
+    :: RootKey impl
+    -- ^ Existing root key
     -> OurId impl
     -> TheirId impl
     -> SharedSecret impl
     -- ^ Fresh DH secret
-    -> (Root impl, ReceivingChain impl)
+    -> (RootKey impl, ReceivingChainKey impl)
     -- ^ New root ratchet key along with receiving chain key

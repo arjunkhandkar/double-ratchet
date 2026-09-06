@@ -43,8 +43,8 @@ import Data.Set qualified as Set
 import DoubleRatchet.Class (DoubleRatchet (..))
 
 data SendingChainState impl = SendingChainState
-  { sendingChainKey :: SendingChain impl
-  -- ^ Chain key from which message key and subsequent chain keys issue
+  { sendingChainKey :: SendingChainKey impl
+  -- ^ Chain key from which symmetric key and subsequent chain keys issue
   , nextSendingMessageIndex :: Int
   -- ^ Sending chain length after the next chain ratchet advance
   , previousSendingChainLength :: Int
@@ -52,8 +52,8 @@ data SendingChainState impl = SendingChainState
   }
 
 data ReceivingChainState impl = ReceivingChainState
-  { receivingChainKey :: ReceivingChain impl
-  -- ^ Chain key from which message key and subsequent chain keys issue
+  { receivingChainKey :: ReceivingChainKey impl
+  -- ^ Chain key from which symmetric key and subsequent chain keys issue
   , receivingChainEpoch :: PublicKey impl
   -- ^ Sender's public key, used to synchronize state
   , knownReceivingChainEpochs :: Set.Set (PublicKey impl)
@@ -65,8 +65,8 @@ data ReceivingChainState impl = ReceivingChainState
   }
 
 data RatchetState impl = RatchetState
-  { root :: Root impl
-  -- ^ Key for the root ratchet
+  { root :: RootKey impl
+  -- ^ Root key from which chain keys and subsequent root keys issue
   , dhSecretKey :: SecretKey impl
   -- ^ Our secret key
   , sendingChainState :: SendingChainState impl

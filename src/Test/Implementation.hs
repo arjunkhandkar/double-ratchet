@@ -11,9 +11,9 @@ import Test.ToyCrypto qualified as ToyCrypto
 data TestImplementation
 
 instance DoubleRatchet TestImplementation where
-  type Root TestImplementation = ToyCrypto.Root
-  type SendingChain TestImplementation = ToyCrypto.SendingChain
-  type ReceivingChain TestImplementation = ToyCrypto.ReceivingChain
+  type RootKey TestImplementation = ToyCrypto.Root
+  type SendingChainKey TestImplementation = ToyCrypto.SendingChain
+  type ReceivingChainKey TestImplementation = ToyCrypto.ReceivingChain
   type SymmetricKey TestImplementation = ToyCrypto.SymmetricKey
   type SecretKey TestImplementation = ToyCrypto.SecretKey
   type PublicKey TestImplementation = ToyCrypto.PublicKey
@@ -22,8 +22,8 @@ instance DoubleRatchet TestImplementation where
   type TheirId TestImplementation = ToyCrypto.TheirUserId
   toPublicKey = ToyCrypto.toPublic
   deriveSharedSecret = ToyCrypto.dh
-  deriveNextSendingChain = ToyCrypto.deriveNextSendingChain
-  deriveNextReceivingChain = ToyCrypto.deriveNextReceivingChain
+  deriveNextSendingChainKey = ToyCrypto.deriveNextSendingChain
+  deriveNextReceivingChainKey = ToyCrypto.deriveNextReceivingChain
   initializeRootRatchet = ToyCrypto.initializeRoot
   deriveNextRootSending = ToyCrypto.deriveNextRootSending
   deriveNextRootReceiving = ToyCrypto.deriveNextRootReceiving
