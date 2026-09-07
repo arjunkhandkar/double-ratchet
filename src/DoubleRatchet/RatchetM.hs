@@ -27,7 +27,7 @@ import Data.List (unsnoc)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import DoubleRatchet.Class (DoubleRatchet (..))
-import DoubleRatchet.RatchetState
+import DoubleRatchet.State (RatchetState (..), ReceivingChainState (..), SendingChainState (..))
 
 -- | A computation over a 'RatchetState'
 type RatchetM impl = State (RatchetState impl)

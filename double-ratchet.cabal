@@ -7,6 +7,7 @@ cabal-version: 1.12
 name:           double-ratchet
 version:        0.1.0
 synopsis:       A double ratchet implementation parameterized over your choice of KDFs
+description:    This package provides a state machine that implements a version of the double ratchet algorithm. While it may not be completely faithful to the implementation used by Signal and WhatsApp (among others), it should be sufficient to power toy projects, or simply as a tool to learn how the algorithm works.
 stability:      experimental
 author:         Arjun Khandkar
 maintainer:     Arjun Khandkar
@@ -17,7 +18,7 @@ build-type:     Simple
 
 library
   exposed-modules:
-      DoubleRatchet.Class DoubleRatchet.RatchetM DoubleRatchet.RatchetState Test.TestMain
+      DoubleRatchet DoubleRatchet.Class DoubleRatchet.RatchetM DoubleRatchet.State Test.TestMain
   other-modules:
       Test.Implementation Test.ToyCrypto
   hs-source-dirs:

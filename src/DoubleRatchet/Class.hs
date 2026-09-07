@@ -13,9 +13,6 @@ module DoubleRatchet.Class
   )
 where
 
-{- | This class accepts pure primitives. This is by design; the state machine provided by this package
-is deterministic.
--}
 class DoubleRatchet impl where
   -- | Root key that ratchets to produce chain keys
   type RootKey impl

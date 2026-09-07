@@ -11,8 +11,8 @@ import Control.Monad (forM, replicateM)
 import Data.List (sort)
 import Data.Maybe (catMaybes)
 import DoubleRatchet.RatchetM (ratchetReceivingChainKey, ratchetSendingChainKey, runRatchetM)
-import DoubleRatchet.RatchetState (initializeRatchetState)
-import DoubleRatchet.RatchetState qualified as RatchetState
+import DoubleRatchet.State (initializeRatchetState)
+import DoubleRatchet.State qualified as RatchetState
 import Hedgehog.Gen (sample, shuffle)
 import Test.Hspec (describe, hspec, it, shouldBe)
 import Test.Implementation (TestImplementation)

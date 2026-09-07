@@ -1,9 +1,10 @@
-name:       double-ratchet
-version:    0.1.0
-synopsis:   A double ratchet implementation parameterized over your choice of KDFs
-stability:  experimental
-author:     Arjun Khandkar
-copyright:  (c) 2026 Arjun Khandkar
+name:         double-ratchet
+version:      0.1.0
+synopsis:     A double ratchet implementation parameterized over your choice of KDFs
+description:  This package provides a state machine that implements a version of the double ratchet algorithm. While it may not be completely faithful to the implementation used by Signal and WhatsApp (among others), it should be sufficient to power toy projects, or simply as a tool to learn how the algorithm works.
+stability:    experimental
+author:       Arjun Khandkar
+copyright:    (c) 2026 Arjun Khandkar
 
 language: GHC2021
 
@@ -39,9 +40,10 @@ library:
   source-dirs: src
 
   exposed-modules:
+    DoubleRatchet
     DoubleRatchet.Class
     DoubleRatchet.RatchetM
-    DoubleRatchet.RatchetState
+    DoubleRatchet.State
     Test.TestMain
 
   other-modules:

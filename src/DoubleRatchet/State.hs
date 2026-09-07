@@ -1,5 +1,5 @@
 {- |
-Module: DoubleRatchet.RatchetState
+Module: DoubleRatchet.State
 Copyright: (c) 2026 Arjun Khandkar
 License: MIT
 Maintainer: khandkararjun@gmail.com
@@ -7,7 +7,7 @@ Stability: experimental
 
 State types for the double ratchet state machine
 -}
-module DoubleRatchet.RatchetState
+module DoubleRatchet.State
   ( -- ** Root ratchet state
     RatchetState
 
@@ -35,6 +35,9 @@ module DoubleRatchet.RatchetState
   , receivingChainKey
   , receivingChainEpoch
   , skippedMessageMap
+
+    -- ** Convenient getters
+  , getCurrentSendingChainLength
   )
 where
 
@@ -109,3 +112,7 @@ initializeRatchetState dhPublicKey' dhSecretKey' ourUserId theirUserId =
               , skippedMessageMap = Map.empty
               }
         }
+
+-- | This can be used to determine if it is time to ratchet the root key
+getCurrentSendingChainLength :: RatchetState impl -> Int
+getCurrentSendingChainLength = nextSendingMessageIndex . sendingChainState
