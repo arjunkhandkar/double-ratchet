@@ -20,6 +20,7 @@ instance DoubleRatchet TestImplementation where
   type SharedSecret TestImplementation = ToyCrypto.SharedSecret
   type OurId TestImplementation = ToyCrypto.OurUserId
   type TheirId TestImplementation = ToyCrypto.TheirUserId
+  maximumChainLength = 8
   toPublicKey = ToyCrypto.toPublic
   deriveSharedSecret = ToyCrypto.dh
   deriveNextSendingChainKey = ToyCrypto.deriveNextSendingChain

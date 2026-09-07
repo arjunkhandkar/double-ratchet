@@ -51,6 +51,20 @@ class DoubleRatchet impl where
   -}
   type TheirId impl
 
+  {- | The maximum number of times a chain key can be ratcheted before a root key ratchet must be
+  performed.
+
+  This encourages the root key to be ratcheted periodically, requiring fresh injection of entropy
+  which provides forward secrecy and post-compromise recovery.
+
+  This value also sets an upper bound on out-of-order symmetric key generation; if the maximum
+  chain length is set to @n@ and the current chain has grown to @m@ such that @m <= n@, the skipped
+  symmetric key cache can be populated with no more than @n - m@ symmetric keys, thus helping
+  avoid attacks where a malevolent actor can force an arbitrarily large number of keys to be
+  generated and added to the skipped symmetric key cache.
+  -}
+  maximumChainLength :: Int
+
   -- | Derive the public key for a secret key
   toPublicKey :: SecretKey impl -> PublicKey impl
 
