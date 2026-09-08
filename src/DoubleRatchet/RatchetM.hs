@@ -117,10 +117,11 @@ ratchetReceivingChainKey messageKeyId ourUserId theirUserId = do
         oldMissedMessageMap <- gets (skippedMessageMap . receivingChainState)
         latestReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
         let (skippedSymmetricKeys, newChainKey) =
-              advanceReceivingFromTo @impl
-                nextReceivingIndex
-                (keyIndex messageKeyId)
-                chainKey
+              -- Have we been requested a reasonable key index (i.e. within maximum chain length)?
+              if keyIndex messageKeyId < maximumChainLength @impl then
+                advanceReceivingFromTo @impl nextReceivingIndex (keyIndex messageKeyId) chainKey
+              else
+                ([], chainKey) -- Helps avoid arbitrarily large amount of work skipping keys
         let newSkippedMessageMapEntries =
               Map.fromList $
                 fmap
@@ -185,8 +186,12 @@ advanceReceivingRatchet dhPubKey previousChainLength ourUserId theirUserId = do
   chainKey <- gets (receivingChainKey . receivingChainState)
   oldMissedMessageMap <- gets (skippedMessageMap . receivingChainState)
   oldReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
-  -- We discard the chain key as we'll get a new one from the advanced root
-  let (skippedSymmetricKeys, _) = advanceReceivingFromTo @impl chainIndex previousChainLength chainKey
+  let skippedSymmetricKeys =
+        fst $
+          advanceReceivingFromTo @impl
+            chainIndex
+            (min previousChainLength (maximumChainLength @impl)) -- Previous chain shouldn't grow beyond max chain length
+            chainKey
   let newSkippedMessageMapEntries =
         Map.fromList $
           fmap
@@ -238,31 +243,37 @@ advanceReceivingFromTo from to chainKey = do
 {- | Ratchet the sending chain key and generate a symmetric key that can be used to encrypt a message.
 Returns information identifying the symmetric key that can be transferred over the wire and used
 to generate the same key on the receiving end.
+
+Returns 'Nothing' if the maximum chain length has been reached, i.e. if the sending chain key has been
+ratcheted 'maximumChainLength' times.
 -}
 ratchetSendingChainKey
   :: forall impl
    . DoubleRatchet impl
-  => RatchetM impl (SymmetricKeyId (PublicKey impl), SymmetricKey impl)
+  => RatchetM impl (Maybe (SymmetricKeyId (PublicKey impl), SymmetricKey impl))
   -- ^ Message key ID, message key and previous sending chain length
 ratchetSendingChainKey = do
   -- Fetch current sending chain key and index
   currentChainKey <- gets (sendingChainKey . sendingChainState)
   keyIndex <- gets (nextSendingMessageIndex . sendingChainState)
-  -- Derive message key and next sending chain key
-  let (messageKey, nextChainKey) = deriveNextSendingChainKey @impl currentChainKey
-  -- Update sending chain key and next sending message index
-  modify $ \s ->
-    s
-      { sendingChainState =
-          (sendingChainState s)
-            { sendingChainKey = nextChainKey
-            , nextSendingMessageIndex = keyIndex + 1
-            }
-      }
-  -- Get current sending chain epoch and previous chain length
-  chainEpoch <- fmap (toPublicKey @impl) $ gets dhSecretKey
-  previousChainLength <- gets (previousSendingChainLength . sendingChainState)
-  pure (SymmetricKeyId {..}, messageKey)
+  if keyIndex < maximumChainLength @impl then do
+    -- Derive message key and next sending chain key
+    let (messageKey, nextChainKey) = deriveNextSendingChainKey @impl currentChainKey
+    -- Update sending chain key and next sending message index
+    modify $ \s ->
+      s
+        { sendingChainState =
+            (sendingChainState s)
+              { sendingChainKey = nextChainKey
+              , nextSendingMessageIndex = keyIndex + 1
+              }
+        }
+    -- Get current sending chain epoch and previous chain length
+    chainEpoch <- fmap (toPublicKey @impl) $ gets dhSecretKey
+    previousChainLength <- gets (previousSendingChainLength . sendingChainState)
+    pure $ Just (SymmetricKeyId {..}, messageKey)
+  else
+    pure Nothing -- Maximum chain length has been reached
 
 {- | Ratchet the root key. Invoked after generating a fresh DH secret, this also generates a
 fresh sending chain key and resets related fields ('nextSendingMessageIndex', 'previousSendingChainLength').
