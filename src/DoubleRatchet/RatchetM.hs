@@ -13,7 +13,7 @@ module DoubleRatchet.RatchetM
   , runRatchetM
 
     -- ** Results of computations
-  , RatchetError (..)
+  , RatchetFailure (..)
 
     -- * RatchetState manipulation
   , ratchetReceivingChainKey
@@ -41,7 +41,7 @@ import DoubleRatchet.State
   )
 
 -- | A computation over a 'RatchetState'
-type RatchetM impl = StateT (RatchetState impl) (Except RatchetError)
+type RatchetM impl = StateT (RatchetState impl) (Except RatchetFailure)
 
 -- | Run a computation against a 'RatchetState'
 runRatchetM
@@ -50,17 +50,27 @@ runRatchetM
   -- ^ Initial ratchet state
   -> RatchetM impl a
   -- ^ Computation to run
-  -> Either RatchetError (a, RatchetState impl)
+  -> Either RatchetFailure (a, RatchetState impl)
   -- ^ If successful, the result of the computation along with the new ratchet state.
 runRatchetM s a = runExcept $ runStateT a s
 
--- | Errors that computation against ratchet state may return.
-data RatchetError
+-- | The ways a computation over ratchet state could fail.
+data RatchetFailure
   = {- | The ratchet state is invalid. Any computations against an invalid ratchet
     state will fail and result in no mutation of state.
     -}
     InvalidRatchetState [RatchetStateError]
-  deriving Show
+  | {- | The maximum chain length for a sending (or receiving) chain has been reached and thus
+    the chain key cannot be ratcheted. The root key must be ratcheted before re-attempting to
+    ratchet the chain key.
+
+    Under normal circumstances, this should not be returned while attempting to advance the
+    receiving chain key as a well-behaved sender will rachet their root key before they
+    exceed the maximum chain length on their sending chain key, which will trigger an automatic
+    root key ratchet on the receiving side.
+    -}
+    MaxChainLengthReached
+  deriving (Eq, Show)
 
 {- | Ratchet the receiving chain key and generate a symmetric key that can be used to decrypt a message.
 If necessary, this function may automatically ratchet the root key to derive a fresh receiving chain key.
@@ -279,13 +289,13 @@ advanceReceivingFromTo from to chainKey = do
 Returns information identifying the symmetric key that can be transferred over the wire and used
 to generate the same key on the receiving end.
 
-Returns 'Nothing' if the maximum chain length has been reached, i.e. if the sending chain key has been
-ratcheted 'maximumChainLength' times.
+Fails with 'MaxChainLengthReached' if the maximum chain length has been reached, i.e. if the sending
+chain key has been 'maximumChainLength' times.
 -}
 ratchetSendingChainKey
   :: forall impl
    . (DoubleRatchet impl, Ord (PublicKey impl))
-  => RatchetM impl (Maybe (SymmetricKeyId (PublicKey impl), SymmetricKey impl))
+  => RatchetM impl (SymmetricKeyId (PublicKey impl), SymmetricKey impl)
   -- ^ Message key ID, message key and previous sending chain length
 ratchetSendingChainKey = do
   assertValidRatchetState
@@ -307,9 +317,9 @@ ratchetSendingChainKey = do
     -- Get current sending chain epoch and previous chain length
     chainEpoch <- fmap (toPublicKey @impl) $ gets dhSecretKey
     previousChainLength <- gets (previousSendingChainLength . sendingChainState)
-    pure $ Just (SymmetricKeyId {..}, messageKey)
+    pure $ (SymmetricKeyId {..}, messageKey)
   else
-    pure Nothing -- Maximum chain length has been reached
+    throwError MaxChainLengthReached -- Maximum chain length has been reached
 
 {- | Ratchet the root key. Invoked after generating a fresh DH secret, this also generates a
 fresh sending chain key and resets related fields ('nextSendingMessageIndex', 'previousSendingChainLength').

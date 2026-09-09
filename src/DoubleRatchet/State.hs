@@ -1,3 +1,5 @@
+{-# LANGUAGE UndecidableInstances #-}
+
 {- |
 Module: DoubleRatchet.State
 Copyright: (c) 2026 Arjun Khandkar
@@ -60,6 +62,11 @@ data SendingChainState impl = SendingChainState
   -- ^ Chain length of the previous sending chain ratchet
   }
 
+-- | __Caution:__ SendingChainKey is secret. Its Show instance should not reveal contents!
+deriving instance Show (SendingChainKey impl) => Show (SendingChainState impl)
+
+deriving instance Eq (SendingChainKey impl) => Eq (SendingChainState impl)
+
 data ReceivingChainState impl = ReceivingChainState
   { receivingChainKey :: ReceivingChainKey impl
   -- ^ Chain key from which symmetric key and subsequent chain keys issue
@@ -73,6 +80,15 @@ data ReceivingChainState impl = ReceivingChainState
   -- ^ Message keys that the state machine has advanced past without consuming
   }
 
+-- | __Caution:__ ReceivingChainKey is secret. Its Show instance should not reveal contents!
+deriving instance
+  (Show (PublicKey impl), Show (ReceivingChainKey impl), Show (SymmetricKey impl))
+  => Show (ReceivingChainState impl)
+
+deriving instance
+  (Eq (PublicKey impl), Eq (ReceivingChainKey impl), Eq (SymmetricKey impl))
+  => Eq (ReceivingChainState impl)
+
 data RatchetState impl = RatchetState
   { root :: RootKey impl
   -- ^ Root key from which chain keys and subsequent root keys issue
@@ -83,6 +99,15 @@ data RatchetState impl = RatchetState
   , receivingChainState :: ReceivingChainState impl
   -- ^ Receiving chain ratchet state
   }
+
+-- | __Caution:__ RootKey and SecretKey are secret. Their Show instances should not reveal contents!
+deriving instance
+  (Show (ReceivingChainState impl), Show (RootKey impl), Show (SecretKey impl), Show (SendingChainState impl))
+  => Show (RatchetState impl)
+
+deriving instance
+  (Eq (ReceivingChainState impl), Eq (RootKey impl), Eq (SecretKey impl), Eq (SendingChainState impl))
+  => Eq (RatchetState impl)
 
 initializeRatchetState
   :: forall impl

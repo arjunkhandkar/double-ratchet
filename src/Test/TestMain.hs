@@ -13,7 +13,8 @@ import Control.Monad (forM, replicateM)
 import Data.List (sort)
 import Data.Maybe (catMaybes)
 import DoubleRatchet.RatchetM
-  ( SymmetricKeyId (SymmetricKeyId)
+  ( RatchetFailure (MaxChainLengthReached)
+  , SymmetricKeyId (SymmetricKeyId)
   , advanceRootKey
   , ratchetReceivingChainKey
   , ratchetSendingChainKey
@@ -58,7 +59,7 @@ firstEpochInOrder = do
   let aliceR0 = initializeRatchetState @TestImplementation bobPub0 aliceSec0 aliceAlicePov bobAlicePov
       bobR0 = initializeRatchetState @TestImplementation alicePub0 bobSec0 bobBobPov aliceBobPov
   -- Alice generates 5 sending keys
-  (catMaybes -> aliceKeys, _) <-
+  (aliceKeys, _) <-
     expectRight $ runRatchetM @TestImplementation aliceR0 $ replicateM 5 $ ratchetSendingChainKey
   -- Bob generates 5 receiving keys
   (bobKeys, _) <-
@@ -78,7 +79,7 @@ firstEpochOutOfOrder = do
   let aliceR0 = initializeRatchetState @TestImplementation bobPub0 aliceSec0 aliceAlicePov bobAlicePov
       bobR0 = initializeRatchetState @TestImplementation alicePub0 bobSec0 bobBobPov aliceBobPov
   -- Alice generates 5 sending keys
-  (catMaybes -> aliceKeys, _) <-
+  (aliceKeys, _) <-
     expectRight $ runRatchetM @TestImplementation aliceR0 $ replicateM 5 $ ratchetSendingChainKey
   -- Shuffle Alice's keys, and by extension, the order in which Bob derives receiving keys
   shuffledAliceKeys <- sample $ shuffle aliceKeys
@@ -116,14 +117,13 @@ maxChainLengthReached = do
   -- Initialize double ratchet
   let aliceR0 = initializeRatchetState @TestImplementation bobPub0 aliceSec0 aliceAlicePov bobAlicePov
   -- Alice generates 8 sending keys
-  (catMaybes -> aliceKeys, aliceR1) <-
+  (aliceKeys, aliceR1) <-
     expectRight $ runRatchetM @TestImplementation aliceR0 $ replicateM 8 $ ratchetSendingChainKey
   length aliceKeys `shouldBe` 8
   -- Alice has reached her maximum chain length. An attempt to generate another key...
-  (aliceKey9, _) <-
-    expectRight $ runRatchetM @TestImplementation aliceR1 $ ratchetSendingChainKey
+  let aliceKey9 = runRatchetM @TestImplementation aliceR1 $ ratchetSendingChainKey
   -- ... should fail.
-  aliceKey9 `shouldBe` Nothing
+  aliceKey9 `shouldBe` Left MaxChainLengthReached
 
 postMaxChainLengthReached :: IO ()
 postMaxChainLengthReached = do
@@ -133,20 +133,19 @@ postMaxChainLengthReached = do
   -- Initialize double ratchet
   let aliceR0 = initializeRatchetState @TestImplementation bobPub0 aliceSec0 aliceAlicePov bobAlicePov
   -- Alice generates 8 sending keys
-  (catMaybes -> aliceKeys, aliceR1) <-
+  (aliceKeys, aliceR1) <-
     expectRight $ runRatchetM @TestImplementation aliceR0 $ replicateM 8 $ ratchetSendingChainKey
   length aliceKeys `shouldBe` 8
   -- Alice has reached her maximum chain length. An attempt to generate another key...
-  (aliceKey9, aliceR2) <-
-    expectRight $ runRatchetM @TestImplementation aliceR1 $ ratchetSendingChainKey
+  let aliceKey9 = runRatchetM @TestImplementation aliceR1 $ ratchetSendingChainKey
   -- ... should fail.
-  aliceKey9 `shouldBe` Nothing
+  aliceKey9 `shouldBe` Left MaxChainLengthReached
   -- Alice ratchets her root key
   (aliceSec1, _) <- ToyCrypto.genKeyPair
   (_, aliceR3) <-
-    expectRight $ runRatchetM @TestImplementation aliceR2 $ advanceRootKey aliceSec1 aliceAlicePov bobAlicePov
+    expectRight $ runRatchetM @TestImplementation aliceR1 $ advanceRootKey aliceSec1 aliceAlicePov bobAlicePov
   -- Alice can generate sending keys from the new chain key
-  (catMaybes -> aliceKeys2, _) <-
+  (aliceKeys2, _) <-
     expectRight $ runRatchetM @TestImplementation aliceR3 $ replicateM 5 $ ratchetSendingChainKey
   length aliceKeys2 `shouldBe` 5
 

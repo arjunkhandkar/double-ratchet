@@ -32,7 +32,7 @@ import Data.Text qualified as Text
 import System.Random.Stateful (UniformRange (uniformRM), globalStdGen)
 
 newtype SecretKey = SecretKey Integer
-  deriving newtype Show
+  deriving newtype (Eq, Show)
 
 genSecret :: IO SecretKey
 genSecret = fmap SecretKey $ uniformRM (2, 1000000) globalStdGen
@@ -65,10 +65,10 @@ newtype Root = Root Text
   deriving newtype (Eq, Show)
 
 newtype SendingChain = SendingChain Text
-  deriving newtype Show
+  deriving newtype (Eq, Show)
 
 newtype ReceivingChain = ReceivingChain Text
-  deriving newtype Show
+  deriving newtype (Eq, Show)
 
 initializeRoot :: OurUserId -> TheirUserId -> SharedSecret -> (Root, SendingChain, ReceivingChain)
 initializeRoot (OurUserId ourId) (TheirUserId theirId) (SharedSecret secret) =
