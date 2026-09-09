@@ -36,11 +36,17 @@ module DoubleRatchet.State
   , receivingChainEpoch
   , skippedMessageMap
 
+    -- ** Validating RatchetState
+  , validateRatchetState
+  , RatchetStateError (..)
+
     -- ** Convenient getters
   , getCurrentSendingChainLength
   )
 where
 
+import Control.Monad (unless, when)
+import Control.Monad.Writer (execWriter, tell)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import DoubleRatchet.Class (DoubleRatchet (..))
@@ -116,3 +122,50 @@ initializeRatchetState dhPublicKey' dhSecretKey' ourUserId theirUserId =
 -- | This can be used to determine if it is time to ratchet the root key
 getCurrentSendingChainLength :: RatchetState impl -> Int
 getCurrentSendingChainLength = nextSendingMessageIndex . sendingChainState
+
+-- | Circumstances (not mutually exclusive) under which a ratchet state can be deemed invalid
+data RatchetStateError
+  = {- | The set of known epochs was empty. This should never happen as this set should always have
+    at least one element, which is the other party's public key during the initial DH key exchange.
+    -}
+    NoKnownEpochs
+  | {- | The next receiving chain key index has surpassed 'maximumChainLength' or is less than 0,
+    which should be its minimum value
+    -}
+    NextReceivingChainKeyOutOfBounds
+  | {- | The next sending chain key index has surpassed 'maximumChainLength' or is less than 0,
+    which should be its minimum value
+    -}
+    NextSendingChainKeyOutOfBounds
+  | -- | The skipped key cache has keys for epochs that are not in the set of known epochs
+    InvalidSkippedKeyChainEpochs
+  deriving (Eq, Show)
+
+-- | Validate a ratchet state
+validateRatchetState
+  :: forall impl
+   . (DoubleRatchet impl, Ord (PublicKey impl))
+  => RatchetState impl
+  -> [RatchetStateError]
+  -- ^ Possible list of reasons why the ratchet state is invalid
+validateRatchetState RatchetState {..} = execWriter $ do
+  -- The set of known epochs can never be empty; it starts out with the initial
+  -- public key of the other party, and can only grow thereafter
+  when (Set.null $ knownReceivingChainEpochs $ receivingChainState) $
+    tell [NoKnownEpochs]
+  -- The next receiving message index cannot be greater than the maximum chain length or lesser than zero
+  when
+    ( nextReceivingMessageIndex receivingChainState > maximumChainLength @impl
+        || nextReceivingMessageIndex receivingChainState < 0
+    )
+    $ tell [NextReceivingChainKeyOutOfBounds]
+  -- The next sending message index cannot be greater than the maximum chain length or lesser than zero
+  when
+    ( nextSendingMessageIndex sendingChainState > maximumChainLength @impl
+        || nextSendingMessageIndex sendingChainState < 0
+    )
+    $ tell [NextSendingChainKeyOutOfBounds]
+  -- Skipped keys must be from known chain epochs only
+  let skippedKeyChainEpochs = Set.fromList $ fmap fst $ Map.keys $ skippedMessageMap receivingChainState
+  unless (skippedKeyChainEpochs `Set.isSubsetOf` knownReceivingChainEpochs receivingChainState) $
+    tell [InvalidSkippedKeyChainEpochs]

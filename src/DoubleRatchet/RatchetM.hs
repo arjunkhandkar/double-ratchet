@@ -8,29 +8,40 @@ Stability: experimental
 Transformations over 'RatchetState'
 -}
 module DoubleRatchet.RatchetM
-  ( -- ** Run computations against RatchetState
+  ( -- * Run computations against RatchetState
     RatchetM
   , runRatchetM
 
-    -- ** RatchetState manipulation
+    -- ** Results of computations
+  , RatchetError (..)
+
+    -- * RatchetState manipulation
   , ratchetReceivingChainKey
   , ratchetSendingChainKey
   , advanceRootKey
 
-    -- ** Identifying symmetric keys
+    -- * Identifying symmetric keys
   , SymmetricKeyId (..)
   )
 where
 
-import Control.Monad.State (State, gets, modify, runState)
+import Control.Monad (unless)
+import Control.Monad.Except (Except, MonadError (throwError), runExcept)
+import Control.Monad.State (StateT (runStateT), gets, modify)
 import Data.List (unsnoc)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import DoubleRatchet.Class (DoubleRatchet (..))
-import DoubleRatchet.State (RatchetState (..), ReceivingChainState (..), SendingChainState (..))
+import DoubleRatchet.State
+  ( RatchetState (..)
+  , RatchetStateError
+  , ReceivingChainState (..)
+  , SendingChainState (..)
+  , validateRatchetState
+  )
 
 -- | A computation over a 'RatchetState'
-type RatchetM impl = State (RatchetState impl)
+type RatchetM impl = StateT (RatchetState impl) (Except RatchetError)
 
 -- | Run a computation against a 'RatchetState'
 runRatchetM
@@ -39,9 +50,17 @@ runRatchetM
   -- ^ Initial ratchet state
   -> RatchetM impl a
   -- ^ Computation to run
-  -> (a, RatchetState impl)
-  -- ^ The result of the computation along with the new ratchet state
-runRatchetM = flip runState
+  -> Either RatchetError (a, RatchetState impl)
+  -- ^ If successful, the result of the computation along with the new ratchet state.
+runRatchetM s a = runExcept $ runStateT a s
+
+-- | Errors that computation against ratchet state may return.
+data RatchetError
+  = {- | The ratchet state is invalid. Any computations against an invalid ratchet
+    state will fail and result in no mutation of state.
+    -}
+    InvalidRatchetState [RatchetStateError]
+  deriving Show
 
 {- | Ratchet the receiving chain key and generate a symmetric key that can be used to decrypt a message.
 If necessary, this function may automatically ratchet the root key to derive a fresh receiving chain key.
@@ -60,6 +79,8 @@ ratchetReceivingChainKey
   the ratchet; the ratchet cannot produce any symmetric key more than once.
   -}
 ratchetReceivingChainKey messageKeyId ourUserId theirUserId = do
+  assertValidRatchetState
+
   currentReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
   knownReceivingChainEpochs' <- gets (knownReceivingChainEpochs . receivingChainState)
 
@@ -162,9 +183,10 @@ ratchetReceivingChainKey messageKeyId ourUserId theirUserId = do
 
 singleAdvanceReceivingChain
   :: forall impl
-   . DoubleRatchet impl
+   . (DoubleRatchet impl, Ord (PublicKey impl))
   => RatchetM impl (Maybe (SymmetricKey impl))
 singleAdvanceReceivingChain = do
+  assertValidRatchetState
   chainKey <- gets (receivingChainKey . receivingChainState)
   nextIndex <- gets (nextReceivingMessageIndex . receivingChainState)
   -- Advance only if we haven't reached the maximum chain length
@@ -193,6 +215,7 @@ advanceReceivingRatchet
   -> TheirId impl
   -> RatchetM impl ()
 advanceReceivingRatchet dhPubKey previousChainLength ourUserId theirUserId = do
+  assertValidRatchetState
   -- Cache any skipped message keys if we're behind the sender
   chainIndex <- gets (nextReceivingMessageIndex . receivingChainState)
   chainKey <- gets (receivingChainKey . receivingChainState)
@@ -261,10 +284,11 @@ ratcheted 'maximumChainLength' times.
 -}
 ratchetSendingChainKey
   :: forall impl
-   . DoubleRatchet impl
+   . (DoubleRatchet impl, Ord (PublicKey impl))
   => RatchetM impl (Maybe (SymmetricKeyId (PublicKey impl), SymmetricKey impl))
   -- ^ Message key ID, message key and previous sending chain length
 ratchetSendingChainKey = do
+  assertValidRatchetState
   -- Fetch current sending chain key and index
   currentChainKey <- gets (sendingChainKey . sendingChainState)
   keyIndex <- gets (nextSendingMessageIndex . sendingChainState)
@@ -292,13 +316,14 @@ fresh sending chain key and resets related fields ('nextSendingMessageIndex', 'p
 -}
 advanceRootKey
   :: forall impl
-   . DoubleRatchet impl
+   . (DoubleRatchet impl, Ord (PublicKey impl))
   => SecretKey impl
   -- ^ Our new secret key
   -> OurId impl
   -> TheirId impl
   -> RatchetM impl ()
 advanceRootKey newSecretKey ourUserId theirUserId = do
+  assertValidRatchetState
   oldRoot <- gets root
   previousSendingChainLength' <- gets (nextSendingMessageIndex . sendingChainState)
   dhPublicKey' <- gets (receivingChainEpoch . receivingChainState)
@@ -345,3 +370,9 @@ instance Ord dhPublicKey => Ord (SymmetricKeyId dhPublicKey) where
     case compare (chainEpoch ski1) (chainEpoch ski2) of
       EQ -> compare (keyIndex ski1) (keyIndex ski2)
       defOrdering -> defOrdering
+
+-- | Assert that the ratchet state is valid. Quit early if not.
+assertValidRatchetState :: forall impl. (DoubleRatchet impl, Ord (PublicKey impl)) => RatchetM impl ()
+assertValidRatchetState =
+  gets validateRatchetState >>= \rsErrors ->
+    unless (rsErrors == []) $ throwError $ InvalidRatchetState rsErrors

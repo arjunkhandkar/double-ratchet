@@ -30,7 +30,8 @@ library
       TypeFamilies
   ghc-options: -Wall -Werror -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wno-unticked-promoted-constructors
   build-depends:
-      base
+      HUnit
+    , base
     , containers
     , hedgehog
     , hspec
@@ -53,7 +54,8 @@ test-suite state-machine-spec
       TypeFamilies
   ghc-options: -Wall -Werror -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wno-unticked-promoted-constructors
   build-depends:
-      base
+      HUnit
+    , base
     , containers
     , double-ratchet
     , hedgehog

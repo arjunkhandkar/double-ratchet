@@ -1,4 +1,5 @@
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -21,6 +22,7 @@ import DoubleRatchet.RatchetM
 import DoubleRatchet.State (initializeRatchetState)
 import DoubleRatchet.State qualified as RatchetState
 import Hedgehog.Gen (sample, shuffle)
+import Test.HUnit.Base (assertFailure)
 import Test.Hspec (describe, hspec, it, shouldBe)
 import Test.Implementation (TestImplementation)
 import Test.ToyCrypto qualified as ToyCrypto
@@ -56,13 +58,14 @@ firstEpochInOrder = do
   let aliceR0 = initializeRatchetState @TestImplementation bobPub0 aliceSec0 aliceAlicePov bobAlicePov
       bobR0 = initializeRatchetState @TestImplementation alicePub0 bobSec0 bobBobPov aliceBobPov
   -- Alice generates 5 sending keys
-  let (catMaybes -> aliceKeys, _) =
-        runRatchetM @TestImplementation aliceR0 $ replicateM 5 $ ratchetSendingChainKey
+  (catMaybes -> aliceKeys, _) <-
+    expectRight $ runRatchetM @TestImplementation aliceR0 $ replicateM 5 $ ratchetSendingChainKey
   -- Bob generates 5 receiving keys
-  let (bobKeys, _) =
-        runRatchetM @TestImplementation bobR0 $
-          forM aliceKeys $ \(key, _) ->
-            fmap (key,) $ ratchetReceivingChainKey key bobBobPov aliceBobPov
+  (bobKeys, _) <-
+    expectRight $
+      runRatchetM @TestImplementation bobR0 $
+        forM aliceKeys $ \(key, _) ->
+          fmap (key,) $ ratchetReceivingChainKey key bobBobPov aliceBobPov
   -- Keys should match
   filterNotFound bobKeys `shouldBe` aliceKeys
 
@@ -75,15 +78,16 @@ firstEpochOutOfOrder = do
   let aliceR0 = initializeRatchetState @TestImplementation bobPub0 aliceSec0 aliceAlicePov bobAlicePov
       bobR0 = initializeRatchetState @TestImplementation alicePub0 bobSec0 bobBobPov aliceBobPov
   -- Alice generates 5 sending keys
-  let (catMaybes -> aliceKeys, _) =
-        runRatchetM @TestImplementation aliceR0 $ replicateM 5 $ ratchetSendingChainKey
+  (catMaybes -> aliceKeys, _) <-
+    expectRight $ runRatchetM @TestImplementation aliceR0 $ replicateM 5 $ ratchetSendingChainKey
   -- Shuffle Alice's keys, and by extension, the order in which Bob derives receiving keys
   shuffledAliceKeys <- sample $ shuffle aliceKeys
   -- Bob generates 5 receiving keys
-  let (bobKeys, _) =
-        runRatchetM @TestImplementation bobR0 $
-          forM shuffledAliceKeys $ \(key, _) ->
-            fmap (key,) $ ratchetReceivingChainKey key bobBobPov aliceBobPov
+  (bobKeys, _) <-
+    expectRight $
+      runRatchetM @TestImplementation bobR0 $
+        forM shuffledAliceKeys $ \(key, _) ->
+          fmap (key,) $ ratchetReceivingChainKey key bobBobPov aliceBobPov
   -- Keys should match
   sort (filterNotFound bobKeys) `shouldBe` aliceKeys
 
@@ -97,8 +101,10 @@ arbitrarySkips = do
   -- A symmetric key ID that requires an arbitrarily large number of chain key
   -- ratchets beyond what 'maximumChainLength' permits
   let unreasonableKeyId = SymmetricKeyId 9 bobPub0 0
-  let (aliceKey, _) =
-        runRatchetM @TestImplementation aliceR0 $ ratchetReceivingChainKey unreasonableKeyId aliceAlicePov bobAlicePov
+  (aliceKey, _) <-
+    expectRight $
+      runRatchetM @TestImplementation aliceR0 $
+        ratchetReceivingChainKey unreasonableKeyId aliceAlicePov bobAlicePov
   -- Key shouldn't be generated
   aliceKey `shouldBe` Nothing
 
@@ -110,12 +116,12 @@ maxChainLengthReached = do
   -- Initialize double ratchet
   let aliceR0 = initializeRatchetState @TestImplementation bobPub0 aliceSec0 aliceAlicePov bobAlicePov
   -- Alice generates 8 sending keys
-  let (catMaybes -> aliceKeys, aliceR1) =
-        runRatchetM @TestImplementation aliceR0 $ replicateM 8 $ ratchetSendingChainKey
+  (catMaybes -> aliceKeys, aliceR1) <-
+    expectRight $ runRatchetM @TestImplementation aliceR0 $ replicateM 8 $ ratchetSendingChainKey
   length aliceKeys `shouldBe` 8
   -- Alice has reached her maximum chain length. An attempt to generate another key...
-  let (aliceKey9, _) =
-        runRatchetM @TestImplementation aliceR1 $ ratchetSendingChainKey
+  (aliceKey9, _) <-
+    expectRight $ runRatchetM @TestImplementation aliceR1 $ ratchetSendingChainKey
   -- ... should fail.
   aliceKey9 `shouldBe` Nothing
 
@@ -127,20 +133,21 @@ postMaxChainLengthReached = do
   -- Initialize double ratchet
   let aliceR0 = initializeRatchetState @TestImplementation bobPub0 aliceSec0 aliceAlicePov bobAlicePov
   -- Alice generates 8 sending keys
-  let (catMaybes -> aliceKeys, aliceR1) =
-        runRatchetM @TestImplementation aliceR0 $ replicateM 8 $ ratchetSendingChainKey
+  (catMaybes -> aliceKeys, aliceR1) <-
+    expectRight $ runRatchetM @TestImplementation aliceR0 $ replicateM 8 $ ratchetSendingChainKey
   length aliceKeys `shouldBe` 8
   -- Alice has reached her maximum chain length. An attempt to generate another key...
-  let (aliceKey9, aliceR2) =
-        runRatchetM @TestImplementation aliceR1 $ ratchetSendingChainKey
+  (aliceKey9, aliceR2) <-
+    expectRight $ runRatchetM @TestImplementation aliceR1 $ ratchetSendingChainKey
   -- ... should fail.
   aliceKey9 `shouldBe` Nothing
   -- Alice ratchets her root key
   (aliceSec1, _) <- ToyCrypto.genKeyPair
-  let (_, aliceR3) = runRatchetM @TestImplementation aliceR2 $ advanceRootKey aliceSec1 aliceAlicePov bobAlicePov
+  (_, aliceR3) <-
+    expectRight $ runRatchetM @TestImplementation aliceR2 $ advanceRootKey aliceSec1 aliceAlicePov bobAlicePov
   -- Alice can generate sending keys from the new chain key
-  let (catMaybes -> aliceKeys2, _) =
-        runRatchetM @TestImplementation aliceR3 $ replicateM 5 $ ratchetSendingChainKey
+  (catMaybes -> aliceKeys2, _) <-
+    expectRight $ runRatchetM @TestImplementation aliceR3 $ replicateM 5 $ ratchetSendingChainKey
   length aliceKeys2 `shouldBe` 5
 
 aliceAlicePov, bobBobPov :: ToyCrypto.OurUserId
@@ -151,3 +158,8 @@ bobAlicePov, aliceBobPov :: ToyCrypto.TheirUserId
 
 filterNotFound :: [(a, Maybe b)] -> [(a, b)]
 filterNotFound = catMaybes . fmap (\(a, b) -> case b of Nothing -> Nothing; Just b' -> Just (a, b'))
+
+expectRight :: Show l => Either l r -> IO r
+expectRight = \case
+  Left l -> assertFailure $ "Expected Right, but got Left: " <> show l
+  Right r -> pure r
