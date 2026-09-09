@@ -11,7 +11,13 @@ where
 import Control.Monad (forM, replicateM)
 import Data.List (sort)
 import Data.Maybe (catMaybes)
-import DoubleRatchet.RatchetM (advanceRootKey, ratchetReceivingChainKey, ratchetSendingChainKey, runRatchetM)
+import DoubleRatchet.RatchetM
+  ( SymmetricKeyId (SymmetricKeyId)
+  , advanceRootKey
+  , ratchetReceivingChainKey
+  , ratchetSendingChainKey
+  , runRatchetM
+  )
 import DoubleRatchet.State (initializeRatchetState)
 import DoubleRatchet.State qualified as RatchetState
 import Hedgehog.Gen (sample, shuffle)
@@ -25,6 +31,7 @@ testMain = hspec $ do
     it "Both parties derive the same initial root key" sameInitialRoot
     it "Both parties derive the same sending and corresponding receiving keys in order" firstEpochInOrder
     it "Both parties derive the same sending and corresponding receiving keys out of order" firstEpochOutOfOrder
+    it "Receiving chain key cannot be ratcheted arbitrarily" arbitrarySkips
   describe "When the maximum chain length is reached..." $ do
     it "Symmetric keys cannot be generated unless root key is ratcheted" maxChainLengthReached
     it "Symmetric keys can be generated after a root key ratchet" postMaxChainLengthReached
@@ -79,6 +86,21 @@ firstEpochOutOfOrder = do
             fmap (key,) $ ratchetReceivingChainKey key bobBobPov aliceBobPov
   -- Keys should match
   sort (filterNotFound bobKeys) `shouldBe` aliceKeys
+
+arbitrarySkips :: IO ()
+arbitrarySkips = do
+  -- Generate keys
+  (aliceSec0, _) <- ToyCrypto.genKeyPair
+  (_, bobPub0) <- ToyCrypto.genKeyPair
+  -- Initialize double ratchets
+  let aliceR0 = initializeRatchetState @TestImplementation bobPub0 aliceSec0 aliceAlicePov bobAlicePov
+  -- A symmetric key ID that requires an arbitrarily large number of chain key
+  -- ratchets beyond what 'maximumChainLength' permits
+  let unreasonableKeyId = SymmetricKeyId 9 bobPub0 0
+  let (aliceKey, _) =
+        runRatchetM @TestImplementation aliceR0 $ ratchetReceivingChainKey unreasonableKeyId aliceAlicePov bobAlicePov
+  -- Key shouldn't be generated
+  aliceKey `shouldBe` Nothing
 
 maxChainLengthReached :: IO ()
 maxChainLengthReached = do

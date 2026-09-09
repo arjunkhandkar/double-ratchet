@@ -109,19 +109,20 @@ ratchetReceivingChainKey messageKeyId ourUserId theirUserId = do
   currentEpochLookup :: RatchetM impl (Maybe (SymmetricKey impl))
   currentEpochLookup = do
     nextReceivingIndex <- gets (nextReceivingMessageIndex . receivingChainState)
-    if (keyIndex messageKeyId) == nextReceivingIndex then
-      fmap Just singleAdvanceReceivingChain
+
+    -- The requested key index matches our next receiving index
+    if keyIndex messageKeyId == nextReceivingIndex then
+      singleAdvanceReceivingChain
     else
-      if (keyIndex messageKeyId) > nextReceivingIndex then do
+      -- The requested key index is beyond our next receiving index but within the maximum chain length
+      if (keyIndex messageKeyId > nextReceivingIndex)
+        && (keyIndex messageKeyId <= maximumChainLength @impl)
+      then do
         chainKey <- gets (receivingChainKey . receivingChainState)
         oldMissedMessageMap <- gets (skippedMessageMap . receivingChainState)
         latestReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
         let (skippedSymmetricKeys, newChainKey) =
-              -- Have we been requested a reasonable key index (i.e. within maximum chain length)?
-              if keyIndex messageKeyId < maximumChainLength @impl then
-                advanceReceivingFromTo @impl nextReceivingIndex (keyIndex messageKeyId) chainKey
-              else
-                ([], chainKey) -- Helps avoid arbitrarily large amount of work skipping keys
+              advanceReceivingFromTo @impl nextReceivingIndex (keyIndex messageKeyId) chainKey
         let newSkippedMessageMapEntries =
               Map.fromList $
                 fmap
@@ -137,38 +138,49 @@ ratchetReceivingChainKey messageKeyId ourUserId theirUserId = do
                   , nextReceivingMessageIndex = keyIndex messageKeyId
                   }
             }
-        fmap Just singleAdvanceReceivingChain
-      else do
-        latestReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
-        skippedMessageMap' <- gets (skippedMessageMap . receivingChainState)
-        let messageKeyMaybe =
-              Map.lookup (latestReceivingChainEpoch, (keyIndex messageKeyId)) skippedMessageMap'
-        modify $ \s ->
-          s
-            { receivingChainState =
-                (receivingChainState s)
-                  { skippedMessageMap =
-                      Map.delete (latestReceivingChainEpoch, keyIndex messageKeyId) (skippedMessageMap $ receivingChainState s)
-                  }
-            }
-        pure messageKeyMaybe
+        singleAdvanceReceivingChain
+
+      -- We have ratcheted past the requested key index, check the skipped key cache
+      else
+        if keyIndex messageKeyId < nextReceivingIndex then do
+          latestReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
+          skippedMessageMap' <- gets (skippedMessageMap . receivingChainState)
+          let messageKeyMaybe =
+                Map.lookup (latestReceivingChainEpoch, (keyIndex messageKeyId)) skippedMessageMap'
+          modify $ \s ->
+            s
+              { receivingChainState =
+                  (receivingChainState s)
+                    { skippedMessageMap =
+                        Map.delete (latestReceivingChainEpoch, keyIndex messageKeyId) (skippedMessageMap $ receivingChainState s)
+                    }
+              }
+          pure messageKeyMaybe
+        -- We have been requested a key index beyond maximum chain length; do nothing
+        else
+          pure Nothing
 
 singleAdvanceReceivingChain
   :: forall impl
    . DoubleRatchet impl
-  => RatchetM impl (SymmetricKey impl)
+  => RatchetM impl (Maybe (SymmetricKey impl))
 singleAdvanceReceivingChain = do
   chainKey <- gets (receivingChainKey . receivingChainState)
-  let (messageKey, nextChainKey) = deriveNextReceivingChainKey @impl chainKey
-  modify $ \s ->
-    s
-      { receivingChainState =
-          (receivingChainState s)
-            { receivingChainKey = nextChainKey
-            , nextReceivingMessageIndex = nextReceivingMessageIndex (receivingChainState s) + 1
-            }
-      }
-  pure messageKey
+  nextIndex <- gets (nextReceivingMessageIndex . receivingChainState)
+  -- Advance only if we haven't reached the maximum chain length
+  if nextIndex < maximumChainLength @impl then do
+    let (messageKey, nextChainKey) = deriveNextReceivingChainKey @impl chainKey
+    modify $ \s ->
+      s
+        { receivingChainState =
+            (receivingChainState s)
+              { receivingChainKey = nextChainKey
+              , nextReceivingMessageIndex = nextIndex + 1
+              }
+        }
+    pure $ Just messageKey
+  else
+    pure Nothing
 
 advanceReceivingRatchet
   :: forall impl
