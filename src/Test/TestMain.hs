@@ -11,9 +11,8 @@ where
 
 import Control.Monad (forM, replicateM)
 import Data.List (sort)
-import Data.Maybe (catMaybes)
 import DoubleRatchet.RatchetM
-  ( RatchetFailure (MaxChainLengthReached)
+  ( RatchetFailure (InvalidKeyIndex, MaxChainLengthReached)
   , SymmetricKeyId (SymmetricKeyId)
   , advanceRootKey
   , ratchetReceivingChainKey
@@ -68,7 +67,7 @@ firstEpochInOrder = do
         forM aliceKeys $ \(key, _) ->
           fmap (key,) $ ratchetReceivingChainKey key bobBobPov aliceBobPov
   -- Keys should match
-  filterNotFound bobKeys `shouldBe` aliceKeys
+  bobKeys `shouldBe` aliceKeys
 
 firstEpochOutOfOrder :: IO ()
 firstEpochOutOfOrder = do
@@ -90,7 +89,7 @@ firstEpochOutOfOrder = do
         forM shuffledAliceKeys $ \(key, _) ->
           fmap (key,) $ ratchetReceivingChainKey key bobBobPov aliceBobPov
   -- Keys should match
-  sort (filterNotFound bobKeys) `shouldBe` aliceKeys
+  sort bobKeys `shouldBe` aliceKeys
 
 arbitrarySkips :: IO ()
 arbitrarySkips = do
@@ -102,12 +101,10 @@ arbitrarySkips = do
   -- A symmetric key ID that requires an arbitrarily large number of chain key
   -- ratchets beyond what 'maximumChainLength' permits
   let unreasonableKeyId = SymmetricKeyId 9 bobPub0 0
-  (aliceKey, _) <-
-    expectRight $
-      runRatchetM @TestImplementation aliceR0 $
-        ratchetReceivingChainKey unreasonableKeyId aliceAlicePov bobAlicePov
+  let aliceKey =
+        runRatchetM @TestImplementation aliceR0 $ ratchetReceivingChainKey unreasonableKeyId aliceAlicePov bobAlicePov
   -- Key shouldn't be generated
-  aliceKey `shouldBe` Nothing
+  aliceKey `shouldBe` Left InvalidKeyIndex
 
 maxChainLengthReached :: IO ()
 maxChainLengthReached = do
@@ -154,9 +151,6 @@ aliceAlicePov, bobBobPov :: ToyCrypto.OurUserId
 
 bobAlicePov, aliceBobPov :: ToyCrypto.TheirUserId
 (bobAlicePov, aliceBobPov) = (ToyCrypto.TheirUserId "bob", ToyCrypto.TheirUserId "alice")
-
-filterNotFound :: [(a, Maybe b)] -> [(a, b)]
-filterNotFound = catMaybes . fmap (\(a, b) -> case b of Nothing -> Nothing; Just b' -> Just (a, b'))
 
 expectRight :: Show l => Either l r -> IO r
 expectRight = \case

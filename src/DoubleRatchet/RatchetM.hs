@@ -70,6 +70,13 @@ data RatchetFailure
     root key ratchet on the receiving side.
     -}
     MaxChainLengthReached
+  | -- | The requested key index was out of bounds @0 <= keyIndex < maximumChainLength@
+    InvalidKeyIndex
+  | {- | A key was requested more than once. The state machine can generate a key exactly once,
+    and implementations should consider caching generated keys while they may still be needed
+    (and delete them as soon as they no longer are.)
+    -}
+    DuplicateRequest
   deriving (Eq, Show)
 
 {- | Ratchet the receiving chain key and generate a symmetric key that can be used to decrypt a message.
@@ -84,12 +91,16 @@ ratchetReceivingChainKey
   -}
   -> OurId impl
   -> TheirId impl
-  -> RatchetM impl (Maybe (SymmetricKey impl))
+  -> RatchetM impl (SymmetricKey impl)
   {- ^ May be Nothing if the symmetric key identified by SymmetricKeyId was previously returned by
   the ratchet; the ratchet cannot produce any symmetric key more than once.
   -}
 ratchetReceivingChainKey messageKeyId ourUserId theirUserId = do
   assertValidRatchetState
+
+  -- Key index should be valid
+  unless (0 <= keyIndex messageKeyId && keyIndex messageKeyId < maximumChainLength @impl) $
+    throwError InvalidKeyIndex
 
   currentReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
   knownReceivingChainEpochs' <- gets (knownReceivingChainEpochs . receivingChainState)
@@ -115,9 +126,8 @@ ratchetReceivingChainKey messageKeyId ourUserId theirUserId = do
                 }
           }
 
-      -- If we can't find a message key, it must have already been consumed... or we got a bogus message key ID
-      -- Either way, we don't care
-      pure messageKeyMaybe
+      -- If we can't find a message key, it must have already been consumed
+      maybe (throwError DuplicateRequest) pure messageKeyMaybe
 
     -- Requesting a key in a new epoch
     else do
@@ -137,7 +147,7 @@ ratchetReceivingChainKey messageKeyId ourUserId theirUserId = do
       -- Now that we are in the correct epoch, we can do a current-epoch lookup
       currentEpochLookup
  where
-  currentEpochLookup :: RatchetM impl (Maybe (SymmetricKey impl))
+  currentEpochLookup :: RatchetM impl (SymmetricKey impl)
   currentEpochLookup = do
     nextReceivingIndex <- gets (nextReceivingMessageIndex . receivingChainState)
 
@@ -145,10 +155,8 @@ ratchetReceivingChainKey messageKeyId ourUserId theirUserId = do
     if keyIndex messageKeyId == nextReceivingIndex then
       singleAdvanceReceivingChain
     else
-      -- The requested key index is beyond our next receiving index but within the maximum chain length
-      if (keyIndex messageKeyId > nextReceivingIndex)
-        && (keyIndex messageKeyId <= maximumChainLength @impl)
-      then do
+      -- The requested key index is past our next receiving index
+      if keyIndex messageKeyId > nextReceivingIndex then do
         chainKey <- gets (receivingChainKey . receivingChainState)
         oldMissedMessageMap <- gets (skippedMessageMap . receivingChainState)
         latestReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
@@ -172,29 +180,25 @@ ratchetReceivingChainKey messageKeyId ourUserId theirUserId = do
         singleAdvanceReceivingChain
 
       -- We have ratcheted past the requested key index, check the skipped key cache
-      else
-        if keyIndex messageKeyId < nextReceivingIndex then do
-          latestReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
-          skippedMessageMap' <- gets (skippedMessageMap . receivingChainState)
-          let messageKeyMaybe =
-                Map.lookup (latestReceivingChainEpoch, (keyIndex messageKeyId)) skippedMessageMap'
-          modify $ \s ->
-            s
-              { receivingChainState =
-                  (receivingChainState s)
-                    { skippedMessageMap =
-                        Map.delete (latestReceivingChainEpoch, keyIndex messageKeyId) (skippedMessageMap $ receivingChainState s)
-                    }
-              }
-          pure messageKeyMaybe
-        -- We have been requested a key index beyond maximum chain length; do nothing
-        else
-          pure Nothing
+      else do
+        latestReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
+        skippedMessageMap' <- gets (skippedMessageMap . receivingChainState)
+        let messageKeyMaybe =
+              Map.lookup (latestReceivingChainEpoch, (keyIndex messageKeyId)) skippedMessageMap'
+        modify $ \s ->
+          s
+            { receivingChainState =
+                (receivingChainState s)
+                  { skippedMessageMap =
+                      Map.delete (latestReceivingChainEpoch, keyIndex messageKeyId) (skippedMessageMap $ receivingChainState s)
+                  }
+            }
+        maybe (throwError DuplicateRequest) pure messageKeyMaybe
 
 singleAdvanceReceivingChain
   :: forall impl
    . (DoubleRatchet impl, Ord (PublicKey impl))
-  => RatchetM impl (Maybe (SymmetricKey impl))
+  => RatchetM impl (SymmetricKey impl)
 singleAdvanceReceivingChain = do
   assertValidRatchetState
   chainKey <- gets (receivingChainKey . receivingChainState)
@@ -210,9 +214,9 @@ singleAdvanceReceivingChain = do
               , nextReceivingMessageIndex = nextIndex + 1
               }
         }
-    pure $ Just messageKey
+    pure messageKey
   else
-    pure Nothing
+    throwError MaxChainLengthReached -- shouldn't be reachable
 
 advanceReceivingRatchet
   :: forall impl
