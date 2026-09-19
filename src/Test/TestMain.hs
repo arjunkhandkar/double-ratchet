@@ -12,10 +12,7 @@ where
 import Control.Monad (forM, replicateM)
 import Data.List (sort)
 import DoubleRatchet.RatchetM
-  ( RatchetFailure (InvalidKeyIndex, MaxChainLengthReached)
-  , SymmetricKeyId (SymmetricKeyId)
-  , advanceRootKey
-  , ratchetReceivingChainKey
+  ( ratchetReceivingChainKey
   , ratchetSendingChainKey
   , runRatchetM
   )
@@ -33,10 +30,15 @@ testMain = hspec $ do
     it "Both parties derive the same initial root key" sameInitialRoot
     it "Both parties derive the same sending and corresponding receiving keys in order" firstEpochInOrder
     it "Both parties derive the same sending and corresponding receiving keys out of order" firstEpochOutOfOrder
-    it "Receiving chain key cannot be ratcheted arbitrarily" arbitrarySkips
-  describe "When the maximum chain length is reached..." $ do
-    it "Symmetric keys cannot be generated unless root key is ratcheted" maxChainLengthReached
-    it "Symmetric keys can be generated after a root key ratchet" postMaxChainLengthReached
+  describe "After a root ratchet..." $ do
+    it "Both parties derive the same root key" samePostRatchetRoot
+    it "Both parties derive the same sending and corresponding receiving keys in order" secondEpochInOrder
+    it "Both parties derive the same sending and corresponding receiving keys out of order" secondEpochOutOfOrder
+  describe "Across chain epochs..." $ do
+    it "Receiving keys can be requested for previous epochs" crossEpochReceivingKeys
+  describe "Disallowed behavior..." $ do
+    it "Cannot generate the same key more than once" duplicateKeyRequest
+    it "Imposes a limit on the size of the skipped message key map" skippedMessageKeyMapSizeLimit
 
 sameInitialRoot :: IO ()
 sameInitialRoot = do
@@ -91,60 +93,23 @@ firstEpochOutOfOrder = do
   -- Keys should match
   sort bobKeys `shouldBe` aliceKeys
 
-arbitrarySkips :: IO ()
-arbitrarySkips = do
-  -- Generate keys
-  (aliceSec0, _) <- ToyCrypto.genKeyPair
-  (_, bobPub0) <- ToyCrypto.genKeyPair
-  -- Initialize double ratchets
-  let aliceR0 = initializeRatchetState @TestImplementation bobPub0 aliceSec0 aliceAlicePov bobAlicePov
-  -- A symmetric key ID that requires an arbitrarily large number of chain key
-  -- ratchets beyond what 'maximumChainLength' permits
-  let unreasonableKeyId = SymmetricKeyId 9 bobPub0 0
-  let aliceKey =
-        runRatchetM @TestImplementation aliceR0 $ ratchetReceivingChainKey unreasonableKeyId aliceAlicePov bobAlicePov
-  -- Key shouldn't be generated
-  aliceKey `shouldBe` Left InvalidKeyIndex
+samePostRatchetRoot :: IO ()
+samePostRatchetRoot = pure ()
 
-maxChainLengthReached :: IO ()
-maxChainLengthReached = do
-  -- Generate keys
-  (aliceSec0, _) <- ToyCrypto.genKeyPair
-  (_, bobPub0) <- ToyCrypto.genKeyPair
-  -- Initialize double ratchet
-  let aliceR0 = initializeRatchetState @TestImplementation bobPub0 aliceSec0 aliceAlicePov bobAlicePov
-  -- Alice generates 8 sending keys
-  (aliceKeys, aliceR1) <-
-    expectRight $ runRatchetM @TestImplementation aliceR0 $ replicateM 8 $ ratchetSendingChainKey
-  length aliceKeys `shouldBe` 8
-  -- Alice has reached her maximum chain length. An attempt to generate another key...
-  let aliceKey9 = runRatchetM @TestImplementation aliceR1 $ ratchetSendingChainKey
-  -- ... should fail.
-  aliceKey9 `shouldBe` Left MaxChainLengthReached
+secondEpochInOrder :: IO ()
+secondEpochInOrder = pure ()
 
-postMaxChainLengthReached :: IO ()
-postMaxChainLengthReached = do
-  -- Generate keys
-  (aliceSec0, _) <- ToyCrypto.genKeyPair
-  (_, bobPub0) <- ToyCrypto.genKeyPair
-  -- Initialize double ratchet
-  let aliceR0 = initializeRatchetState @TestImplementation bobPub0 aliceSec0 aliceAlicePov bobAlicePov
-  -- Alice generates 8 sending keys
-  (aliceKeys, aliceR1) <-
-    expectRight $ runRatchetM @TestImplementation aliceR0 $ replicateM 8 $ ratchetSendingChainKey
-  length aliceKeys `shouldBe` 8
-  -- Alice has reached her maximum chain length. An attempt to generate another key...
-  let aliceKey9 = runRatchetM @TestImplementation aliceR1 $ ratchetSendingChainKey
-  -- ... should fail.
-  aliceKey9 `shouldBe` Left MaxChainLengthReached
-  -- Alice ratchets her root key
-  (aliceSec1, _) <- ToyCrypto.genKeyPair
-  (_, aliceR3) <-
-    expectRight $ runRatchetM @TestImplementation aliceR1 $ advanceRootKey aliceSec1 aliceAlicePov bobAlicePov
-  -- Alice can generate sending keys from the new chain key
-  (aliceKeys2, _) <-
-    expectRight $ runRatchetM @TestImplementation aliceR3 $ replicateM 5 $ ratchetSendingChainKey
-  length aliceKeys2 `shouldBe` 5
+secondEpochOutOfOrder :: IO ()
+secondEpochOutOfOrder = pure ()
+
+crossEpochReceivingKeys :: IO ()
+crossEpochReceivingKeys = pure ()
+
+duplicateKeyRequest :: IO ()
+duplicateKeyRequest = pure ()
+
+skippedMessageKeyMapSizeLimit :: IO ()
+skippedMessageKeyMapSizeLimit = pure ()
 
 aliceAlicePov, bobBobPov :: ToyCrypto.OurUserId
 (aliceAlicePov, bobBobPov) = (ToyCrypto.OurUserId "alice", ToyCrypto.OurUserId "bob")

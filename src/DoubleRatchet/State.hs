@@ -169,7 +169,7 @@ data RatchetStateError
 -- | Validate a ratchet state
 validateRatchetState
   :: forall impl
-   . (DoubleRatchet impl, Ord (PublicKey impl))
+   . Ord (PublicKey impl)
   => RatchetState impl
   -> [RatchetStateError]
   -- ^ Possible list of reasons why the ratchet state is invalid
@@ -178,18 +178,6 @@ validateRatchetState RatchetState {..} = execWriter $ do
   -- public key of the other party, and can only grow thereafter
   when (Set.null $ knownReceivingChainEpochs $ receivingChainState) $
     tell [NoKnownEpochs]
-  -- The next receiving message index cannot be greater than the maximum chain length or lesser than zero
-  when
-    ( nextReceivingMessageIndex receivingChainState > maximumChainLength @impl
-        || nextReceivingMessageIndex receivingChainState < 0
-    )
-    $ tell [NextReceivingChainKeyOutOfBounds]
-  -- The next sending message index cannot be greater than the maximum chain length or lesser than zero
-  when
-    ( nextSendingMessageIndex sendingChainState > maximumChainLength @impl
-        || nextSendingMessageIndex sendingChainState < 0
-    )
-    $ tell [NextSendingChainKeyOutOfBounds]
   -- Skipped keys must be from known chain epochs only
   let skippedKeyChainEpochs = Set.fromList $ fmap fst $ Map.keys $ skippedMessageMap receivingChainState
   unless (skippedKeyChainEpochs `Set.isSubsetOf` knownReceivingChainEpochs receivingChainState) $

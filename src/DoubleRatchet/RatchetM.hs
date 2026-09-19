@@ -25,7 +25,7 @@ module DoubleRatchet.RatchetM
   )
 where
 
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import Control.Monad.Except (Except, MonadError (throwError), runExcept)
 import Control.Monad.State (StateT (runStateT), gets, modify)
 import Data.List (unsnoc)
@@ -60,16 +60,6 @@ data RatchetFailure
     state will fail and result in no mutation of state.
     -}
     InvalidRatchetState [RatchetStateError]
-  | {- | The maximum chain length for a sending (or receiving) chain has been reached and thus
-    the chain key cannot be ratcheted. The root key must be ratcheted before re-attempting to
-    ratchet the chain key.
-
-    Under normal circumstances, this should not be returned while attempting to advance the
-    receiving chain key as a well-behaved sender will rachet their root key before they
-    exceed the maximum chain length on their sending chain key, which will trigger an automatic
-    root key ratchet on the receiving side.
-    -}
-    MaxChainLengthReached
   | -- | The requested key index was out of bounds @0 <= keyIndex < maximumChainLength@
     InvalidKeyIndex
   | {- | A key was requested more than once. The state machine can generate a key exactly once,
@@ -77,6 +67,8 @@ data RatchetFailure
     (and delete them as soon as they no longer are.)
     -}
     DuplicateRequest
+  | -- | The requested key would result in the skipped message map exceeding its maximum size
+    TooLargeSkip
   deriving (Eq, Show)
 
 {- | Ratchet the receiving chain key and generate a symmetric key that can be used to decrypt a message.
@@ -99,7 +91,7 @@ ratchetReceivingChainKey messageKeyId ourUserId theirUserId = do
   assertValidRatchetState
 
   -- Key index should be valid
-  unless (0 <= keyIndex messageKeyId && keyIndex messageKeyId < maximumChainLength @impl) $
+  unless (keyIndex messageKeyId >= 0) $
     throwError InvalidKeyIndex
 
   currentReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
@@ -160,6 +152,10 @@ ratchetReceivingChainKey messageKeyId ourUserId theirUserId = do
         chainKey <- gets (receivingChainKey . receivingChainState)
         oldMissedMessageMap <- gets (skippedMessageMap . receivingChainState)
         latestReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
+        -- Check if we are being asked to do a reasonable amount of work skipping message keys...
+        skippedMessageMapSize <- fmap Map.size $ gets (skippedMessageMap . receivingChainState)
+        let potentialCacheSize = skippedMessageMapSize + (keyIndex messageKeyId - nextReceivingIndex)
+        when (potentialCacheSize > maximumSkippedMessageMapSize @impl) $ throwError TooLargeSkip
         let (skippedSymmetricKeys, newChainKey) =
               advanceReceivingFromTo @impl nextReceivingIndex (keyIndex messageKeyId) chainKey
         let newSkippedMessageMapEntries =
@@ -204,19 +200,16 @@ singleAdvanceReceivingChain = do
   chainKey <- gets (receivingChainKey . receivingChainState)
   nextIndex <- gets (nextReceivingMessageIndex . receivingChainState)
   -- Advance only if we haven't reached the maximum chain length
-  if nextIndex < maximumChainLength @impl then do
-    let (messageKey, nextChainKey) = deriveNextReceivingChainKey @impl chainKey
-    modify $ \s ->
-      s
-        { receivingChainState =
-            (receivingChainState s)
-              { receivingChainKey = nextChainKey
-              , nextReceivingMessageIndex = nextIndex + 1
-              }
-        }
-    pure messageKey
-  else
-    throwError MaxChainLengthReached -- shouldn't be reachable
+  let (messageKey, nextChainKey) = deriveNextReceivingChainKey @impl chainKey
+  modify $ \s ->
+    s
+      { receivingChainState =
+          (receivingChainState s)
+            { receivingChainKey = nextChainKey
+            , nextReceivingMessageIndex = nextIndex + 1
+            }
+      }
+  pure messageKey
 
 advanceReceivingRatchet
   :: forall impl
@@ -235,12 +228,11 @@ advanceReceivingRatchet dhPubKey previousChainLength ourUserId theirUserId = do
   chainKey <- gets (receivingChainKey . receivingChainState)
   oldMissedMessageMap <- gets (skippedMessageMap . receivingChainState)
   oldReceivingChainEpoch <- gets (receivingChainEpoch . receivingChainState)
-  let skippedSymmetricKeys =
-        fst $
-          advanceReceivingFromTo @impl
-            chainIndex
-            (min previousChainLength (maximumChainLength @impl)) -- Previous chain shouldn't grow beyond max chain length
-            chainKey
+  -- Check if we are being asked to do a reasonable amount of work skipping message keys...
+  skippedMessageMapSize <- fmap Map.size $ gets (skippedMessageMap . receivingChainState)
+  let potentialCacheSize = skippedMessageMapSize + (previousChainLength - chainIndex)
+  when (potentialCacheSize > maximumSkippedMessageMapSize @impl) $ throwError TooLargeSkip
+  let skippedSymmetricKeys = fst $ advanceReceivingFromTo @impl chainIndex previousChainLength chainKey
   let newSkippedMessageMapEntries =
         Map.fromList $
           fmap
@@ -306,24 +298,21 @@ ratchetSendingChainKey = do
   -- Fetch current sending chain key and index
   currentChainKey <- gets (sendingChainKey . sendingChainState)
   keyIndex <- gets (nextSendingMessageIndex . sendingChainState)
-  if keyIndex < maximumChainLength @impl then do
-    -- Derive message key and next sending chain key
-    let (messageKey, nextChainKey) = deriveNextSendingChainKey @impl currentChainKey
-    -- Update sending chain key and next sending message index
-    modify $ \s ->
-      s
-        { sendingChainState =
-            (sendingChainState s)
-              { sendingChainKey = nextChainKey
-              , nextSendingMessageIndex = keyIndex + 1
-              }
-        }
-    -- Get current sending chain epoch and previous chain length
-    chainEpoch <- fmap (toPublicKey @impl) $ gets dhSecretKey
-    previousChainLength <- gets (previousSendingChainLength . sendingChainState)
-    pure $ (SymmetricKeyId {..}, messageKey)
-  else
-    throwError MaxChainLengthReached -- Maximum chain length has been reached
+  -- Derive message key and next sending chain key
+  let (messageKey, nextChainKey) = deriveNextSendingChainKey @impl currentChainKey
+  -- Update sending chain key and next sending message index
+  modify $ \s ->
+    s
+      { sendingChainState =
+          (sendingChainState s)
+            { sendingChainKey = nextChainKey
+            , nextSendingMessageIndex = keyIndex + 1
+            }
+      }
+  -- Get current sending chain epoch and previous chain length
+  chainEpoch <- fmap (toPublicKey @impl) $ gets dhSecretKey
+  previousChainLength <- gets (previousSendingChainLength . sendingChainState)
+  pure $ (SymmetricKeyId {..}, messageKey)
 
 {- | Ratchet the root key. Invoked after generating a fresh DH secret, this also generates a
 fresh sending chain key and resets related fields ('nextSendingMessageIndex', 'previousSendingChainLength').
@@ -386,7 +375,7 @@ instance Ord dhPublicKey => Ord (SymmetricKeyId dhPublicKey) where
       defOrdering -> defOrdering
 
 -- | Assert that the ratchet state is valid. Quit early if not.
-assertValidRatchetState :: forall impl. (DoubleRatchet impl, Ord (PublicKey impl)) => RatchetM impl ()
+assertValidRatchetState :: forall impl. Ord (PublicKey impl) => RatchetM impl ()
 assertValidRatchetState =
   gets validateRatchetState >>= \rsErrors ->
     unless (rsErrors == []) $ throwError $ InvalidRatchetState rsErrors
