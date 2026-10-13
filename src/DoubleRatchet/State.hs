@@ -49,6 +49,7 @@ where
 
 import Control.Monad (unless, when)
 import Control.Monad.Writer (execWriter, tell)
+import Data.Foldable qualified as Map
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import DoubleRatchet.Class (DoubleRatchet (..))
@@ -154,22 +155,16 @@ data RatchetStateError
     at least one element, which is the other party's public key during the initial DH key exchange.
     -}
     NoKnownEpochs
-  | {- | The next receiving chain key index has surpassed 'maximumChainLength' or is less than 0,
-    which should be its minimum value
-    -}
-    NextReceivingChainKeyOutOfBounds
-  | {- | The next sending chain key index has surpassed 'maximumChainLength' or is less than 0,
-    which should be its minimum value
-    -}
-    NextSendingChainKeyOutOfBounds
   | -- | The skipped key cache has keys for epochs that are not in the set of known epochs
     InvalidSkippedKeyChainEpochs
+  | -- | The skipped message map has exceeded its maximum size
+    SkippedMessageMapSizeLimitExceeded
   deriving (Eq, Show)
 
 -- | Validate a ratchet state
 validateRatchetState
   :: forall impl
-   . Ord (PublicKey impl)
+   . (DoubleRatchet impl, Ord (PublicKey impl))
   => RatchetState impl
   -> [RatchetStateError]
   -- ^ Possible list of reasons why the ratchet state is invalid
@@ -182,3 +177,6 @@ validateRatchetState RatchetState {..} = execWriter $ do
   let skippedKeyChainEpochs = Set.fromList $ fmap fst $ Map.keys $ skippedMessageMap receivingChainState
   unless (skippedKeyChainEpochs `Set.isSubsetOf` knownReceivingChainEpochs receivingChainState) $
     tell [InvalidSkippedKeyChainEpochs]
+  -- Skipped message map cannot exceed maximum size
+  unless (Map.length (skippedMessageMap receivingChainState) <= maximumSkippedMessageMapSize @impl) $
+    tell [SkippedMessageMapSizeLimitExceeded]

@@ -71,9 +71,7 @@ data RatchetFailure
     TooLargeSkip
   deriving (Eq, Show)
 
-{- | Ratchet the receiving chain key and generate a symmetric key that can be used to decrypt a message.
-If necessary, this function may automatically ratchet the root key to derive a fresh receiving chain key.
--}
+-- | Ratchet the receiving chain key and get a decryption key. May ratchet the root key if necessary.
 ratchetReceivingChainKey
   :: forall impl
    . (DoubleRatchet impl, Ord (PublicKey impl))
@@ -281,13 +279,7 @@ advanceReceivingFromTo from to chainKey = do
   else
     ([], chainKey) -- we're caught up or are already ahead
 
-{- | Ratchet the sending chain key and generate a symmetric key that can be used to encrypt a message.
-Returns information identifying the symmetric key that can be transferred over the wire and used
-to generate the same key on the receiving end.
-
-Fails with 'MaxChainLengthReached' if the maximum chain length has been reached, i.e. if the sending
-chain key has been 'maximumChainLength' times.
--}
+-- | Ratchet the sending chain key and get an encryption key
 ratchetSendingChainKey
   :: forall impl
    . (DoubleRatchet impl, Ord (PublicKey impl))
@@ -314,9 +306,7 @@ ratchetSendingChainKey = do
   previousChainLength <- gets (previousSendingChainLength . sendingChainState)
   pure $ (SymmetricKeyId {..}, messageKey)
 
-{- | Ratchet the root key. Invoked after generating a fresh DH secret, this also generates a
-fresh sending chain key and resets related fields ('nextSendingMessageIndex', 'previousSendingChainLength').
--}
+-- | Ratchet the root key
 advanceRootKey
   :: forall impl
    . (DoubleRatchet impl, Ord (PublicKey impl))
@@ -375,7 +365,7 @@ instance Ord dhPublicKey => Ord (SymmetricKeyId dhPublicKey) where
       defOrdering -> defOrdering
 
 -- | Assert that the ratchet state is valid. Quit early if not.
-assertValidRatchetState :: forall impl. Ord (PublicKey impl) => RatchetM impl ()
+assertValidRatchetState :: forall impl. (DoubleRatchet impl, Ord (PublicKey impl)) => RatchetM impl ()
 assertValidRatchetState =
   gets validateRatchetState >>= \rsErrors ->
     unless (rsErrors == []) $ throwError $ InvalidRatchetState rsErrors

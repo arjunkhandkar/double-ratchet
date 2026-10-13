@@ -5,8 +5,7 @@ License: MIT
 Maintainer: khandkararjun@gmail.com
 Stability: experimental
 
-This module exposes the 'DoubleRatchet' class, which needs to be instantiated to use the
-state machine provided by this package.
+The 'DoubleRatchet' class, which needs to be instantiated to use the state machine provided by this package.
 -}
 module DoubleRatchet.Class
   ( DoubleRatchet (..)
@@ -14,63 +13,47 @@ module DoubleRatchet.Class
 where
 
 class DoubleRatchet impl where
-  -- | Root key that ratchets to produce chain keys
+  -- | Root key that produces chain keys
   type RootKey impl
 
-  {- | Chain key that ratchets to produce symmetric keys to encrypt messages.
-  This can resolve to the same type as 'ReceivingChain', but a separate type family
-  has been provided to help avoid ambiguity.
-  -}
+  -- | Chain key that produces encryption keys
   type SendingChainKey impl
 
-  {- | Chain that ratchets to produce symmetric keys to decrypt messages.
-  This can resolve to the same type as 'SendingChain', but a separate type family
-  has been provided to help avoid ambiguity.
-  -}
+  -- | Chain key that produces decryption keys
   type ReceivingChainKey impl
 
-  -- | A key produced by after a chain key ratchet, which can be used to encrypt and decrypt messages
+  -- | Encryption/decryption key type
   type SymmetricKey impl
 
-  -- | Secret key for DH exchange
+  -- | DH secret key
   type SecretKey impl
 
-  -- | Public key for DH exchange
+  -- | DH public key
   type PublicKey impl
 
-  -- | DH-derived shared secret
+  -- | DH shared secret
   type SharedSecret impl
 
-  {- | Our identity. This can resolve to the same type as 'TheirId', but a separate type family
-  has been provided to help avoid ambiguity.
-  -}
   type OurId impl
 
-  {- | Thier identity. This can resolve to the same type as 'OurId', but a separate type family
-  has been provided to help avoid ambiguity.
-  -}
   type TheirId impl
 
-  -- | How large the skipped message map can grow.
+  -- | How large the skipped message map can grow
   maximumSkippedMessageMapSize :: Int
 
   -- | Derive the public key for a secret key
   toPublicKey :: SecretKey impl -> PublicKey impl
 
-  -- | Derive a shared secret from a public key and a secret key
+  -- | DH shared secret derivation
   deriveSharedSecret :: PublicKey impl -> SecretKey impl -> SharedSecret impl
 
-  {- | Derive the next sending chain key from the current and get a new symmetric key.
-  Depending on your instance, this can be the same as 'deriveNextReceivingChainKey'.
-  -}
+  -- | Primitive to ratchet sending chain key
   deriveNextSendingChainKey :: SendingChainKey impl -> (SymmetricKey impl, SendingChainKey impl)
 
-  {- | Derive the next receiving chain key from the current and get a new symmetric key.
-  Depending on your instance, this can be the same as 'deriveNextSendingChainKey'.
-  -}
+  -- | Primitive to ratchet receiving chain key
   deriveNextReceivingChainKey :: ReceivingChainKey impl -> (SymmetricKey impl, ReceivingChainKey impl)
 
-  -- | Initialize the root key and get sending and receiving chain keys
+  -- | Initialize the root key
   initializeRootRatchet
     :: OurId impl
     -> TheirId impl
@@ -79,7 +62,7 @@ class DoubleRatchet impl where
     -> (RootKey impl, SendingChainKey impl, ReceivingChainKey impl)
     -- ^ Initial root key along with sending chain key and receiving chain key
 
-  -- | Derive the next root key from the current and get a new chain key to generate encryption keys
+  -- | Primitive to ratchet root key to get sending chain key
   deriveNextRootSending
     :: RootKey impl
     -- ^ Existing root key
@@ -90,7 +73,7 @@ class DoubleRatchet impl where
     -> (RootKey impl, SendingChainKey impl)
     -- ^ New root ratchet key along with sending chain key
 
-  -- | Derive the next root key from the current and get a new chain key to generate decryption keys
+  -- | Primitive to ratchet root key to get receiving chain key
   deriveNextRootReceiving
     :: RootKey impl
     -- ^ Existing root key
